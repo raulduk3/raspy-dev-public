@@ -75,6 +75,11 @@ class HostEnvironment(unittest.TestCase):
                     observed = run(*command,'--check')
                     self.assertEqual(observed.returncode,0,observed.stderr)
                     result = json.loads(observed.stdout)
+                    if result['observation']['state'] == 'runtime_unavailable':
+                        # No Pi runtime on this host (a CI runner): nothing to observe, nothing written.
+                        self.assertFalse(result['launch_allowed'])
+                        self.assertFalse((profile/'auth.json').exists())
+                        continue
                     self.assertEqual(result['observation']['state'],'not_ready')
                     self.assertEqual(result['observation']['capability'],'unverified')
                     self.assertFalse((profile/'auth.json').exists())
