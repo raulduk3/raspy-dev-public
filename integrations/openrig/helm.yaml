@@ -1,0 +1,29 @@
+version: "0.2"
+name: development-helm
+summary: Owner-directed control over the development loop. Workers join one per loop worktree; the loop remains the execution authority.
+pods:
+  - id: control
+    label: Control
+    members:
+      - id: lead
+        label: Coding control
+        agent_ref: local:agents/control
+        profile: default
+        runtime: claude-code
+        cwd: "."
+    edges: []
+  - id: review
+    label: Review
+    members:
+      - id: overseer
+        label: Overseer
+        agent_ref: local:agents/overseer
+        profile: default
+        runtime: codex
+        cwd: "."
+    edges: []
+  - id: workers
+    label: Workers
+    members: []
+    edges: []
+edges: []

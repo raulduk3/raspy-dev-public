@@ -1,0 +1,417 @@
+#!/usr/bin/env python3
+"""Open the native development control surface; launch a seat only on request."""
+import argparse
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+import time
+
+
+ROOT = Path(__file__).resolve().parent.parent
+VERSION = "0.5.14"
+NODE = "node-v24.14.0-darwin-arm64"
+ACCOUNTS = ("anthropic-apple", "anthropic-gmail", "openai-apple", "openai-gmail")
+PROVIDER = {"codex": "openai", "claude": "anthropic"}
+
+
+PROVIDER_OVERRIDE_PREFIXES = ("ANTHROPIC_", "OPENCLAW_", "CLAUDE_CODE_USE_")
+
+
+def tmux_provider_overrides(listing):
+    """Names in a `tmux show-environment -g` listing that would override a seat's provider."""
+    names = []
+    for line in listing.splitlines():
+        if "=" not in line or line.startswith("-"):
+            continue
+        name = line.split("=", 1)[0]
+        if name.startswith(PROVIDER_OVERRIDE_PREFIXES):
+            names.append(name)
+    return names
+
+
+def scrub_tmux_environment(tmux=None):
+    """Every new pane inherits the tmux server's global environment. A server that was
+    started from inside another agent's service carries that service's provider overrides;
+    one dead proxy URL there once kept every new Claude seat retrying a refused connection.
+    Unset those names at the server before a launch. Running panes are untouched."""
+    tmux = tmux or shutil.which("tmux")
+    if not tmux:
+        return []
+    listing = subprocess.run([tmux, "show-environment", "-g"], text=True, capture_output=True)
+    if listing.returncode != 0:
+        return []
+    removed = []
+    for name in tmux_provider_overrides(listing.stdout):
+        if subprocess.run([tmux, "set-environment", "-g", "-u", name], capture_output=True).returncode == 0:
+            removed.append(name)
+    return removed
+
+
+def account_runtime(account):
+    return "claude" if account.startswith("anthropic-") else "codex"
+
+
+def render_openrig_spec(name, runtime, cwd, config_home):
+    """Render a minimal per-account RigSpec as YAML text (no PyYAML dependency;
+    the shape mirrors integrations/openrig/codex.yaml and claude.yaml exactly).
+
+    Uses agent_ref "path:<absolute>" rather than "local:agents/control": the
+    installed rig CLI resolves a "local:" ref relative to the spec file's own
+    directory (its own error hint says so, and the daemon's agent-resolver
+    confirms it: resolveRefToAbsPath joins "local:" refs against baseDir but
+    returns a "path:" ref's remainder unchanged as an absolute path). This
+    spec is written into a state directory, not beside
+    integrations/openrig/agents, so "local:" would not resolve; "path:" does.
+    """
+    member = render_member("control", "Coding control", "control", runtime, cwd, config_home)
+    lines = [
+        'version: "0.2"',
+        f"name: {name}",
+        "summary: Owner-directed development control; the existing loop remains the execution authority.",
+        "pods:",
+        "  - id: development",
+        "    label: Development",
+        "    members:",
+        "      - " + member[0],
+        *("        " + line for line in member[1:]),
+        "    edges: []",
+        "edges: []",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def render_member(member_id, label, agent, runtime, cwd, config_home):
+    """One RigSpec member as YAML lines, in the order the upstream reference uses."""
+    agent_ref = "path:" + str(ROOT / "integrations/openrig/agents" / agent)
+    lines = [f"id: {member_id}", f"label: {json.dumps(label)}", f"agent_ref: {json.dumps(agent_ref)}",
+             "profile: default", f"runtime: {runtime}", f"cwd: {json.dumps(str(cwd))}"]
+    if config_home:
+        lines.append(f"config_home: {json.dumps(config_home)}")
+    return lines
+
+
+def write_generated_spec(name, runtime, cwd, config_home):
+    """Write the generated per-account spec into a state directory: not a
+    product repository, and not committed noise. A temp file was considered
+    and rejected, because OpenRig may re-read the spec path later for a
+    successor launch, restore or resume, by which time a temp file would be
+    gone; a persistent state directory survives that. This mirrors
+    integrations/openrig/README.md's own ~/.local/state/dev-platform
+    convention for generated, non-product state.
+    """
+    return write_state_file(f"{name}.yaml", render_openrig_spec(name, runtime, cwd, config_home))
+
+
+def write_state_file(filename, text):
+    state_root = Path(os.environ.get("DEV_WORKSPACE_STATE_DIR",
+                                     Path.home() / ".local/state/dev-platform/openrig"))
+    state_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(state_root, 0o700)
+    path = state_root / filename
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as stream:
+        stream.write(text)
+    return path
+
+
+def git_common_dir(path, env):
+    result = subprocess.run(["git", "-C", str(path), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                            env=env, text=True, capture_output=True)
+    return Path(result.stdout.strip()).resolve() if result.returncode == 0 else None
+
+
+def professional(path, env):
+    """A checkout outside personal.conf is professional: native boot must not write into it."""
+    identity = git_common_dir(path, env)
+    if identity is None:
+        return False
+    personal = Path(os.environ.get("DEV_PLATFORM_PERSONAL", Path.home() / ".config/dev-platform/personal.conf"))
+    entries = personal.read_text().splitlines() if personal.is_file() else []
+    return not any(git_common_dir(Path(line.strip()).expanduser(), env) == identity
+                   for line in entries if line.strip() and not line.lstrip().startswith("#"))
+
+
+def worker_worktree(cwd, env):
+    """A worker seat works in a linked worktree on its own branch, as the loop cuts one per
+    issue (.claude/worktrees/loop-<issue>-<slug> on type/slug-<issue>). Returns the member
+    id, the branch and the common Git directory, or None."""
+    listing = subprocess.run(["git", "-C", str(cwd), "rev-parse", "--path-format=absolute",
+                              "--show-toplevel", "--git-dir", "--git-common-dir"],
+                             env=env, text=True, capture_output=True)
+    branch = subprocess.run(["git", "-C", str(cwd), "symbolic-ref", "--short", "-q", "HEAD"],
+                            env=env, text=True, capture_output=True).stdout.strip()
+    if listing.returncode != 0 or not branch:
+        return None
+    top, git_dir, common = (Path(line).resolve() for line in listing.stdout.splitlines())
+    if top != cwd.resolve() or git_dir == common:
+        return None
+    issue = re.match(r"loop-(\d+)-", cwd.name)
+    member = f"issue-{issue.group(1)}" if issue else re.sub(r"[^a-z0-9]+", "-", branch.lower()).strip("-")
+    return member, branch, common
+
+
+MANAGED_BLOCK = re.compile(r"(?:\n|^)\s*<!-- BEGIN (OpenRig|RIGGED) MANAGED BLOCK: [\s\S]*?"
+                           r"<!-- END \1 MANAGED BLOCK: [^>]+ -->\s*(?=\n|\Z)")
+
+
+def strip_managed_blocks(path):
+    """`rig remove` stops a seat but leaves its guidance blocks in the folder's CLAUDE.md or
+    AGENTS.md, which a worktree tracks. Same rule as OpenRig's own removeManagedBlocksFromFile
+    (packages/daemon/src/domain/managed-blocks.ts), which runs only on a whole-rig teardown."""
+    if not path.is_file():
+        return False
+    original = path.read_text()
+    cleaned = re.sub(r"\n{3,}", "\n\n", MANAGED_BLOCK.sub("\n", original)).strip()
+    if not cleaned:
+        path.unlink()
+        return True
+    if cleaned != original.strip():
+        path.write_text(cleaned + "\n")
+        return True
+    return False
+
+
+def running_rig_id(run, name):
+    inventory = json.loads(run("ps", "--json", "--include-archived", capture=True).stdout)
+    if isinstance(inventory, dict):
+        inventory = inventory["entries"]
+    live = [r for r in inventory if (r.get("rigName") or r.get("name")) == name
+            and not (r.get("archivedAt") or r.get("isArchived"))]
+    return live[0]["rigId"] if len(live) == 1 else None
+
+
+def seat_names(run, name):
+    """logicalId -> tmux session for every seat of one rig."""
+    nodes = json.loads(run("ps", "--nodes", "--rig", name, "--json", capture=True).stdout)
+    return {n.get("logicalId"): n.get("canonicalSessionName") for n in nodes if isinstance(n, dict)}
+
+
+def worker_seat(args, rig, run, env, parser):
+    """add-worker puts one seat in the workers pod of a running rig, in one loop worktree;
+    remove-worker takes it out and restores the worktree's guidance files."""
+    cwd = args.cwd.resolve()
+    identity = worker_worktree(cwd, env)
+    if identity is None:
+        parser.exit(2, "A worker seat needs a linked worktree on its own branch, such as the one "
+                       "the loop cuts for an issue.\n")
+    member_id, branch, common = identity
+    logical = f"workers.{member_id}"
+    rig_id = running_rig_id(run, args.rig)
+    if args.action == "remove-worker":
+        if rig_id and logical in seat_names(run, args.rig):
+            run("remove", rig_id, logical)
+        restored = [name for name in ("CLAUDE.md", "AGENTS.md") if strip_managed_blocks(cwd / name)]
+        print(f"{logical} removed; restored {', '.join(restored) or 'nothing'} in {cwd}", flush=True)
+        return 0
+    if professional(cwd, env):
+        parser.exit(2, "Native OpenRig boot writes managed context. Use an external project-world "
+                       "directory, not a professional repository checkout.\n")
+    if rig_id is None:
+        parser.exit(2, f"{args.rig} is not one running rig; start it before adding workers.\n")
+    if logical in seat_names(run, args.rig):
+        parser.exit(2, f"{args.rig} already has a seat for {logical}.\n")
+    config_home = None
+    if args.account:
+        config_home = resolve_account_plan(args.account, args.runtime, cwd, env, parser)["member"].get("config_home")
+    # OpenRig's collector lands untracked in the worktree; keep it out of status and commits.
+    exclude = common / "info/exclude"
+    exclude.parent.mkdir(parents=True, exist_ok=True)
+    present = exclude.read_text().splitlines() if exclude.is_file() else []
+    with exclude.open("a") as stream:
+        for pattern in (".openrig/", ".claude/settings.local.json"):
+            if pattern not in present:
+                stream.write(pattern + "\n")
+    runtime = "claude-code" if args.runtime == "claude" else "codex"
+    fragment = write_state_file(f"{args.rig}.{member_id}.member.yaml", "\n".join(
+        render_member(member_id, f"Worker {branch}", "worker", runtime, cwd, config_home)) + "\n")
+    removed = scrub_tmux_environment()
+    if removed:
+        print("Removed inherited provider overrides from the tmux server: " + ", ".join(removed), flush=True)
+    # The client gives up after five seconds while the daemon finishes the launch, so the
+    # outcome is read back from the rig rather than from this exit code. Never retry blind.
+    subprocess.run([str(rig), "add", rig_id, "workers", str(fragment)], env=env)
+    deadline = time.monotonic() + float(os.environ.get("DEV_WORKSPACE_ADD_WAIT", "120"))
+    while True:
+        session = seat_names(run, args.rig).get(logical)
+        if session or time.monotonic() > deadline:
+            break
+        time.sleep(3)
+    if not session:
+        parser.exit(1, f"{logical} not confirmed in {args.rig}; inspect `rig ps --nodes --rig {args.rig}` "
+                       "before trying again.\n")
+    print(f"{logical} on {branch}: tmux attach -t {session}", flush=True)
+    return 0
+
+
+def resolve_account_plan(account, runtime, cwd, env, parser):
+    """Resolve --account through the account service and refuse early (before
+    touching rig inventory or writing any spec) on a disallowed plan, quoting
+    the service's own reason rather than inventing one.
+    """
+    service = Path(os.environ.get("DEV_WORKSPACE_ACCOUNT_SERVICE", ROOT / "bin/ai-environment"))
+    command = [str(service)]
+    registry = os.environ.get("DEV_WORKSPACE_ACCOUNTS_REGISTRY")
+    if registry:
+        command += ["--registry", registry]
+    command += ["plan", "--client", "openrig", "--provider", PROVIDER[runtime],
+                "--preferred-account", account, "--allow-unknown-quota", "--cwd", str(cwd)]
+    try:
+        result = subprocess.run(command, env=env, capture_output=True, text=True, timeout=45)
+    except subprocess.TimeoutExpired:
+        parser.exit(2, "dev-workspace: account plan timed out; account service unavailable.\n")
+    try:
+        plan = json.loads(result.stdout)
+    except ValueError:
+        plan = None
+    if not plan or not plan.get("launch_allowed"):
+        reason = (plan or {}).get("reason") or result.stderr.strip() or "account plan unavailable"
+        parser.exit(2, f"dev-workspace: account plan refused: {reason}\n")
+    return plan
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("action", nargs="?", default="open", choices=["open", "plan", "start", "add-worker", "remove-worker"])
+    parser.add_argument("runtime", nargs="?", choices=["codex", "claude", "helm"],
+                        help="helm starts the control rig: a control seat, a Codex overseer and an "
+                             "empty workers pod, from an engagement folder outside the repository")
+    parser.add_argument("--cwd", type=Path, help="Explicit working directory for a new control seat")
+    parser.add_argument("--rig", help="The running rig a worker seat joins or leaves; with start helm, "
+                                      "the new control rig's name, one per project")
+    parser.add_argument("--shared", action="store_true", help="Attach an already configured kernel terminal; never boot one")
+    parser.add_argument("--account", choices=ACCOUNTS,
+                        help="Resolve and pin one native account for this seat through the account "
+                             "service; renders a distinct per-account rig so two accounts never collide")
+    args = parser.parse_args()
+    workers = args.action in ("add-worker", "remove-worker")
+    if workers and (not args.rig or not args.cwd):
+        parser.error(f"{args.action} requires --rig and --cwd")
+    if args.rig and not workers and not (args.action in ("plan", "start") and args.runtime == "helm"):
+        parser.error("--rig names a worker's rig, or an helm control rig")
+    if args.rig and not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", args.rig):
+        parser.error("--rig must be lowercase letters, digits and hyphens")
+    if args.action == "add-worker" and args.runtime not in ("claude", "codex"):
+        parser.error("add-worker requires a claude or codex runtime")
+    if args.action in ("plan", "start") and (not args.runtime or not args.cwd):
+        parser.error("plan/start require a runtime and --cwd")
+    if args.action == "open" and (args.runtime or args.cwd):
+        parser.error("open does not select or launch a coding seat")
+    if args.shared and args.action != "open":
+        parser.error("--shared applies only to open")
+    if args.cwd and not args.cwd.is_dir():
+        parser.error("--cwd must be an existing directory")
+    if args.account and args.action not in ("plan", "start", "add-worker"):
+        parser.error("--account applies only to plan, start and add-worker")
+    if args.account and account_runtime(args.account) != args.runtime:
+        parser.error(f"--account {args.account} does not match runtime {args.runtime}")
+
+    install = Path(os.environ.get("DEV_WORKSPACE_RUNTIME", Path.home() / ".local/share/dev-platform/openrig-runtime"))
+    rig = install / "app/node_modules/.bin/rig"
+    node_dir = install / NODE / "bin"
+    if not rig.is_file() or not (node_dir / "node").is_file():
+        parser.exit(2, "Pinned OpenRig runtime missing; see integrations/openrig/README.md.\n")
+    env = os.environ.copy()
+    # A caller may itself be an OpenClaw-managed Codex process. Do not make its
+    # managed home the auth/configuration store for a native standalone seat.
+    env.pop("CODEX_HOME", None)
+    env.pop("CODEX_THREAD_ID", None)
+    env["PATH"] = os.pathsep.join([str(node_dir), str(ROOT / "bin"), env.get("PATH", "")])
+
+    def run(*parts, capture=False):
+        return subprocess.run([str(rig), *parts], env=env, check=True,
+                              text=True, stdout=subprocess.PIPE if capture else None)
+
+    installed_version = run("--version", capture=True).stdout.strip().split()
+    if not installed_version or installed_version[0] != VERSION:
+        parser.exit(2, f"Expected OpenRig {VERSION}; review the integration before upgrading.\n")
+    # This pinned version has no machine-readable daemon-status command and
+    # returns exit 0 even for stopped/unverified states. Fail closed on unknown.
+    status = run("daemon", "status", capture=True).stdout.strip()
+    if status == "Daemon stopped":
+        if args.action == "plan":
+            parser.exit(2, "Daemon is stopped; open the workspace before requesting a native plan.\n")
+        run("daemon", "start", "--no-kernel")
+    elif not status.startswith("Daemon running on port ") or "UNHEALTHY" in status:
+        parser.exit(2, f"Not starting a second daemon: {status}\nInspect rig daemon status.\n")
+
+    if args.action == "open":
+        os.execve(str(rig), [str(rig), "tui", *(["--shared"] if args.shared else [])], env)
+    if workers:
+        return worker_seat(args, rig, run, env, parser)
+
+    account_plan = None
+    if args.account:
+        # Resolved unconditionally, even on the reuse path below: with a
+        # named account this is identity revalidation, not reselection, and
+        # it must refuse before any inventory lookup or spec is written.
+        account_plan = resolve_account_plan(args.account, args.runtime, args.cwd.resolve(), env, parser)
+        name = f"development-{args.runtime}-{args.account}"
+    else:
+        name = args.rig or f"development-{args.runtime}"
+
+    inventory = json.loads(run("ps", "--json", "--include-archived", capture=True).stdout)
+    if isinstance(inventory, dict):
+        if inventory.get("truncated"):
+            parser.exit(2, "Rig inventory is truncated; inspect it before starting another seat.\n")
+        inventory = inventory["entries"]
+    matches = [r for r in inventory if (r.get("rigName") or r.get("name")) == name]
+    if len(matches) > 1:
+        parser.exit(2, f"Multiple {name} rigs found; resolve their ownership before launch.\n")
+    if matches:
+        if matches[0].get("archivedAt") or matches[0].get("isArchived"):
+            parser.exit(2, f"{name} is archived; explicitly unarchive it before reuse.\n")
+        command = ["up", name, "--existing"]
+        print(f"Reusing {name}; its persisted session keeps its original task and working directory.", flush=True)
+    else:
+        if args.action == "start":
+            # Native boot writes managed context into cwd. Never introduce it into
+            # a professional checkout; use an external project-world instead.
+            if professional(args.cwd, env):
+                parser.exit(2, "Native OpenRig boot writes managed context. Use an external project-world "
+                               "directory, not a professional repository checkout.\n")
+            # Its seats would hold the rig worktree's tracked guidance files modified, and the
+            # loop folds only into a clean rig worktree. Workers get worktrees of their own.
+            if args.runtime == "helm" and git_common_dir(args.cwd, env) is not None:
+                parser.exit(2, "The helm control rig works from an engagement folder outside the repository.\n")
+        if account_plan is not None:
+            member = account_plan["member"]
+            spec_path = write_generated_spec(name, member["runtime"], member["cwd"], member.get("config_home"))
+            command = ["up", str(spec_path), "--cwd", str(args.cwd.resolve())]
+        elif args.rig and (args.cwd / "rig.yaml").is_file():
+            # The engagement defines its own team. Its members' folders resolve against the
+            # spec's own directory, and --cwd would override every one of them, so none is passed.
+            spec = (args.cwd / "rig.yaml").resolve()
+            declared = re.search(r"^name:\s*['\"]?([^'\"\s]+)", spec.read_text(), re.MULTILINE)
+            if not declared or declared.group(1) != name:
+                parser.exit(2, f"{spec} does not declare name: {name}; fix the spec or the --rig name.\n")
+            command = ["up", str(spec)]
+        elif args.rig:
+            # Same template under the project's own name. Written to the state directory,
+            # so its local: agent refs become absolute, as render_openrig_spec explains.
+            template = (ROOT / "integrations/openrig/helm.yaml").read_text()
+            template = template.replace("name: development-helm\n", f"name: {name}\n", 1).replace(
+                "agent_ref: local:agents/", "agent_ref: path:" + str(ROOT / "integrations/openrig/agents") + "/")
+            command = ["up", str(write_state_file(f"{name}.yaml", template)), "--cwd", str(args.cwd.resolve())]
+        else:
+            command = ["up", str(ROOT / "integrations/openrig" / f"{args.runtime}.yaml"), "--cwd", str(args.cwd.resolve())]
+    run(*command, "--plan")
+    if args.action == "start":
+        removed = scrub_tmux_environment()
+        if removed:
+            print("Removed inherited provider overrides from the tmux server: " + ", ".join(removed), flush=True)
+        # No --yes: upstream retains permission/trust decisions. Starting the
+        # control seat does not dispatch the development loop's workers.
+        run(*command)
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except (subprocess.CalledProcessError, OSError, ValueError, KeyError) as exc:
+        print(f"dev-workspace: {exc}", file=sys.stderr)
+        sys.exit(1)

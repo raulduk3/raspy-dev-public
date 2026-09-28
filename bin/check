@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Offline regression suite. Tests isolate HOME, Git config, remotes and all platform state.
+set -euo pipefail
+root="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+cd "$root"
+for command in bash git python3 jq; do
+  command -v "$command" >/dev/null || { echo "check: missing $command" >&2; exit 2; }
+done
+python3 -c 'import yaml' 2>/dev/null || { echo "check: missing PyYAML (python3 -m pip install pyyaml)" >&2; exit 2; }
+while IFS= read -r script; do bash -n "$script"; done < <(git ls-files '*.sh' skills/loop/scripts/ghx bin/new-repo)
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_*.py' -v

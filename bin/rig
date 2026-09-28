@@ -1,0 +1,17 @@
+#!/usr/bin/env python3
+"""Forward unchanged arguments to the isolated, pinned native OpenRig runtime."""
+import os
+from pathlib import Path
+import sys
+
+runtime = Path(os.environ.get('DEV_WORKSPACE_RUNTIME',
+                              Path.home() / '.local/share/dev-platform/openrig-runtime'))
+node_bin = runtime / 'node-v24.14.0-darwin-arm64/bin'
+cli_bin = runtime / 'app/node_modules/.bin'
+node = node_bin / 'node'
+wrapper = cli_bin / 'rig'
+if not node.is_file() or not wrapper.is_file():
+    sys.exit('Pinned OpenRig runtime missing; see integrations/openrig/README.md.')
+env = os.environ.copy()
+env['PATH'] = os.pathsep.join((str(node_bin), str(cli_bin), env.get('PATH', '')))
+os.execve(str(node), [str(node), str(wrapper.resolve()), *sys.argv[1:]], env)

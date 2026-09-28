@@ -1,0 +1,33 @@
+# Codex execution rules. Installed as ~/.codex/rules/default.rules by docs/runbooks/new-repo.md
+# (the sandbox default lives in ~/.codex/config.toml: sandbox_mode = "workspace-write").
+# Read-only and build commands are allowed without a prompt; anything that pushes to a protected
+# branch, merges, rewrites history, restarts a service or reaches a host is refused.
+# Codex cannot express per-repository rules, so develop pushes stay forbidden for Codex everywhere,
+# personal repositories included; Codex opens draft pull requests. The Claude Code guard in
+# hooks/pre-tool-use-guard.sh is the per-repository authority.
+prefix_rule(pattern=["bun", "test"], decision="allow")
+prefix_rule(pattern=["bun", "run", "check"], decision="allow")
+prefix_rule(pattern=["bun", "run", "typecheck"], decision="allow")
+prefix_rule(pattern=["bun", "run", "lint"], decision="allow")
+prefix_rule(pattern=["bun", "run", "format:check"], decision="allow")
+prefix_rule(pattern=["bun", "install", "--frozen-lockfile"], decision="allow")
+prefix_rule(pattern=["git", "status"], decision="allow")
+prefix_rule(pattern=["git", "diff"], decision="allow")
+prefix_rule(pattern=["git", "log"], decision="allow")
+prefix_rule(pattern=["git", "fetch"], decision="allow")
+prefix_rule(pattern=["git", "push", "origin", "develop"], decision="forbidden")
+prefix_rule(pattern=["git", "push", "origin", "main"], decision="forbidden")
+prefix_rule(pattern=["git", "push", "--force"], decision="forbidden")
+prefix_rule(pattern=["git", "push", "-f"], decision="forbidden")
+prefix_rule(pattern=["git", "rebase"], decision="forbidden")
+prefix_rule(pattern=["git", "reset", "--hard"], decision="forbidden")
+prefix_rule(pattern=["git", "commit", "--amend"], decision="forbidden")
+prefix_rule(pattern=["gh", "pr", "merge"], decision="forbidden")
+prefix_rule(pattern=["gh", "pr", "ready"], decision="forbidden")
+prefix_rule(pattern=["docker", "compose", "up"], decision="forbidden")
+prefix_rule(pattern=["docker", "compose", "restart"], decision="forbidden")
+prefix_rule(pattern=["docker", "compose", "down"], decision="forbidden")
+prefix_rule(pattern=["docker", "restart"], decision="forbidden")
+prefix_rule(pattern=["docker", "stop"], decision="forbidden")
+prefix_rule(pattern=["systemctl", "restart"], decision="forbidden")
+prefix_rule(pattern=["ssh", "root@"], decision="forbidden")

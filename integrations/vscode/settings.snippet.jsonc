@@ -1,0 +1,43 @@
+// Keys to merge into the VS Code user settings.json (Default profile). Mirrors hooks/codex.rules
+// and hooks/pre-tool-use-guard.sh: read-only and check commands run without a prompt; anything
+// that pushes to a protected branch, merges, rewrites history, posts to the ledger, reaches a
+// host or a container asks the owner every time (false = always confirm, never silently allowed).
+{
+  "chat.tools.terminal.autoApprove": {
+    "bun test": true,
+    "bun run check": true,
+    "bun run typecheck": true,
+    "bun run lint": true,
+    "bun run format:check": true,
+    "bun install --frozen-lockfile": true,
+    "git status": true,
+    "git diff": true,
+    "git log": true,
+    "git fetch": true,
+    "git branch": true,
+    "git worktree list": true,
+    "gh pr view": true,
+    "gh pr list": true,
+    "gh pr checks": true,
+    "gh pr diff": true,
+    "gh issue view": true,
+    "gh issue list": true,
+    "gh run list": true,
+    "rg": true,
+    "git push": false,
+    "git rebase": false,
+    "git reset": false,
+    "git commit --amend": false,
+    "git merge": false,
+    "gh pr merge": false,
+    "gh pr ready": false,
+    "gh pr review": false,
+    "gh issue create": false,
+    "gh issue comment": false,
+    "docker": false,
+    "ssh": false,
+    "systemctl": false,
+    "openclaw": false
+  },
+  "chat.agent.maxRequests": 50
+}

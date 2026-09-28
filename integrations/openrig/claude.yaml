@@ -1,0 +1,15 @@
+version: "0.2"
+name: development-claude
+summary: Owner-directed development control; the existing loop remains the execution authority.
+pods:
+  - id: development
+    label: Development
+    members:
+      - id: control
+        label: Coding control
+        agent_ref: local:agents/control
+        profile: default
+        runtime: claude-code
+        cwd: "."
+    edges: []
+edges: []

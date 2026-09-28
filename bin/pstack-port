@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+"""Build the platform's pstack skills in skills/ from the unmodified copy in vendor/pstack.
+
+  bin/pstack-port          rewrite skills/<name>/ for every ported pstack skill
+  bin/pstack-port --check  exit 1 when skills/ differs from what a port would write
+
+Her text stays as she wrote it. A port makes only these changes:
+  - her front door, `poteto-mode`, is named `dev-plat` here (and its agent `dev-plat-agent`):
+    the folder, the frontmatter, its description, and every mention in the ported Markdown;
+    her TypeScript keeps its internal names so its lockfile and tests stay hers;
+  - the frontmatter `name` becomes the folder name (clients key skills by it);
+  - one platform line after the frontmatter points at docs/pstack-platform.md, the map from
+    Cursor's tools to this platform's;
+  - files under integrations/pstack/overlays/<skill>/ replace the vendored file of the same path.
+Skills in PARKED are not ported; the map says why. integrations/pstack/ported.txt lists the rest.
+"""
+from pathlib import Path
+import filecmp
+import re
+import shutil
+import sys
+import tempfile
+
+ROOT = Path(__file__).resolve().parents[1]
+VENDOR = ROOT / 'vendor/pstack/skills'
+OVERLAYS = ROOT / 'integrations/pstack/overlays'
+LISTING = ROOT / 'integrations/pstack/ported.txt'
+PARKED = {
+    'make-bot-ui': 'drives Cursor Automations webhooks, which this platform does not have',
+}
+RENAMED = {'poteto-mode': 'dev-plat'}
+MARKDOWN_SUBS = (('poteto-mode', 'dev-plat'), ('poteto-agent', 'dev-plat-agent'))
+DESCRIPTIONS = {
+    'dev-plat': ('"The platform\'s engineering mode, from pstack by Lauren Tan: concise, detailed responses,'
+                 ' deliberate subagents, unslopped prose, simple code, and verified work, routed through'
+                 ' playbooks. Use for /dev-plat or any engineering task that needs rigor."'),
+}
+IGNORE = shutil.ignore_patterns('node_modules', '.DS_Store', '*.log')
+NOTE = ('> **On this platform.** This is {origin} (MIT, Lauren Tan; the unmodified'
+        ' source is in `vendor/pstack`).{adapted} Read [the platform map](../../docs/pstack-platform.md)'
+        ' (installed: `~/.local/share/dev-platform/current/docs/pstack-platform.md`) once per session:'
+        ' it says what the Cursor tools named here are on this machine, and which steps the guard hook'
+        ' leaves to the owner.')
+ADAPTED = ' This copy is adapted; `integrations/pstack/overlays/{name}/` holds every change.'
+
+
+def adapt(skill_md, name, upstream):
+    origin = (f'pstack\'s `{name}` skill' if name == upstream
+              else f'pstack\'s front-door mode skill, named `{name}` on this platform')
+    note = NOTE.format(origin=origin, adapted=ADAPTED.format(name=upstream) if (OVERLAYS / upstream).is_dir() else '')
+    for path in skill_md.parent.rglob('*.md'):
+        body = path.read_text()
+        for old, new in MARKDOWN_SUBS:
+            body = body.replace(old, new)
+        path.write_text(body)
+    text = skill_md.read_text()
+    lines = text.split('\n')
+    if lines[0] != '---' or '---' not in lines[1:]:
+        sys.exit(f'pstack-port: {skill_md} has no frontmatter')
+    end = lines.index('---', 1)
+    lines[1:end] = [f'name: {name}' if re.match(r'name:', line) else line for line in lines[1:end]]
+    if name in DESCRIPTIONS:
+        lines[1:end] = [f'description: {DESCRIPTIONS[name]}' if re.match(r'description:', line) else line
+                        for line in lines[1:end]]
+    if note not in text:
+        lines[end + 1:end + 1] = ['', note]
+    skill_md.write_text('\n'.join(lines))
+
+
+def build(target):
+    names = []
+    for source in sorted(p for p in VENDOR.iterdir() if (p / 'SKILL.md').is_file()):
+        if source.name in PARKED:
+            continue
+        name = RENAMED.get(source.name, source.name)
+        dest = target / name
+        shutil.copytree(source, dest, ignore=IGNORE)
+        overlay = OVERLAYS / source.name
+        if overlay.is_dir():
+            shutil.copytree(overlay, dest, dirs_exist_ok=True, ignore=IGNORE)
+        adapt(dest / 'SKILL.md', name, source.name)
+        names.append(name)
+    return names
+
+
+def same(a, b):
+    compared = filecmp.dircmp(a, b)
+    if compared.left_only or compared.right_only or compared.funny_files:
+        return False
+    if filecmp.cmpfiles(a, b, compared.common_files, shallow=False)[1:] != ([], []):
+        return False
+    return all(same(a / d, b / d) for d in compared.common_dirs)
+
+
+def main(argv):
+    check = argv == ['--check']
+    if argv and not check:
+        sys.exit(__doc__)
+    with tempfile.TemporaryDirectory() as tmp:
+        built = Path(tmp)
+        names = build(built)
+        listing = ''.join(f'{n}\n' for n in names)
+        if check:
+            stale = [n for n in names if not (ROOT / 'skills' / n).is_dir() or not same(built / n, ROOT / 'skills' / n)]
+            if not LISTING.is_file() or LISTING.read_text() != listing:
+                stale.append(str(LISTING.relative_to(ROOT)))
+            if stale:
+                print('pstack-port: out of date, run bin/pstack-port: ' + ', '.join(stale))
+                return 1
+            print(f'pstack-port: {len(names)} skills match vendor/pstack')
+            return 0
+        previous = LISTING.read_text().split() if LISTING.is_file() else []
+        taken = [n for n in names if n not in previous and (ROOT / 'skills' / n).exists()]
+        if taken:
+            sys.exit('pstack-port: a platform skill already uses the name ' + ', '.join(taken))
+        for name in set(previous) | set(names):
+            shutil.rmtree(ROOT / 'skills' / name, ignore_errors=True)
+        for name in names:
+            shutil.copytree(built / name, ROOT / 'skills' / name)
+        LISTING.parent.mkdir(parents=True, exist_ok=True)
+        LISTING.write_text(listing)
+        print(f'pstack-port: wrote {len(names)} skills; parked: {", ".join(sorted(PARKED))}')
+        return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))

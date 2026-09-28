@@ -1,0 +1,19 @@
+name: development-control
+version: "1.0"
+description: Owner-directed control surface for the existing development loop.
+imports: []
+profiles:
+  default:
+    uses:
+      skills: []
+      guidance: [role]
+      subagents: []
+      plugins: []
+      runtime_resources: []
+resources:
+  guidance:
+    - id: role
+      path: guidance/role.md
+startup:
+  files: []
+  actions: []

@@ -1,0 +1,11 @@
+name: check
+on:
+  push:
+  pull_request:
+jobs:
+  check:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m pip install --break-system-packages pyyaml
+      - run: ./bin/check

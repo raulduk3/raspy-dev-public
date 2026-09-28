@@ -1,0 +1,19 @@
+version: "0.2"
+name: development-helm
+summary: "solo: one control seat and worker seats, no overseer. For small goals where the check is the review."
+pods:
+  - id: control
+    label: Control
+    members:
+      - id: lead
+        label: Coding control
+        agent_ref: local:agents/control
+        profile: default
+        runtime: claude-code
+        cwd: "."
+    edges: []
+  - id: workers
+    label: Workers
+    members: []
+    edges: []
+edges: []

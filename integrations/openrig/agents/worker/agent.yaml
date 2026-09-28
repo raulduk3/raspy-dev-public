@@ -1,0 +1,19 @@
+name: development-worker
+version: "1.0"
+description: One development loop worker, in the worktree the loop cut for its issue.
+imports: []
+profiles:
+  default:
+    uses:
+      skills: []
+      guidance: [role]
+      subagents: []
+      plugins: []
+      runtime_resources: []
+resources:
+  guidance:
+    - id: role
+      path: guidance/role.md
+startup:
+  files: []
+  actions: []

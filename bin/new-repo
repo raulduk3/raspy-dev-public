@@ -1,0 +1,225 @@
+#!/usr/bin/env bash
+# Initialize a repository to the standard from this platform's templates.
+#
+#   bin/new-repo <directory> [--owner <login>] [--register [--personal]]
+#                [--github <owner>/<name>] [--private|--public]
+#
+# Copies templates/ into the directory, writes the minimal project files the templates assume
+# (package.json with the check scripts, tsconfig, prettier and eslint configuration,
+# .prettierignore, .gitignore, a README stub), commits on main, tags v0.1.0 so the version
+# derives, creates develop, and, when --github names a repository, creates it with gh, pushes both
+# branches and applies the rulesets under github/rulesets/. Without --github nothing leaves the
+# machine: the repository is local, its tasks are files in docs/tasks/, and the loop merges each
+# goal's rig branch back locally. It is left on develop. --register adds it to repos.conf (local, or owner with
+# --github) so Helm, the team and the loop can find it; --personal also lists it in
+# personal.conf as the owner's own project. Exit 0 on success.
+set -euo pipefail
+
+# Resolve the link in ~/.local/bin so templates are found in the release, not beside the link.
+PLATFORM="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+TEMPLATES="$PLATFORM/templates"
+RULESETS="$PLATFORM/github/rulesets"
+
+usage() { sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2; }
+
+directory=""
+owner=""
+github=""
+visibility="--private"
+register=0
+personal=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --owner) owner="${2:?--owner needs a login}"; shift 2 ;;
+    --github) github="${2:?--github needs owner/name}"; shift 2 ;;
+    --private|--public) visibility="$1"; shift ;;
+    --register) register=1; shift ;;
+    --personal) personal=1; shift ;;
+    -h|--help) usage ;;
+    -*) echo "new-repo: unknown option $1" >&2; usage ;;
+    *) [ -z "$directory" ] || usage; directory="$1"; shift ;;
+  esac
+done
+[ -n "$directory" ] || usage
+if [ -z "$owner" ]; then
+  owner="${github%%/*}"
+  [ -n "$owner" ] && [ "$owner" != "$github" ] || owner="$(gh api user --jq .login 2>/dev/null || true)"
+fi
+[ -n "$owner" ] || { echo "new-repo: --owner is required when gh is not logged in" >&2; exit 2; }
+if [ -e "$directory" ] && [ -n "$(ls -A "$directory" 2>/dev/null)" ]; then
+  echo "new-repo: $directory exists and is not empty" >&2
+  exit 2
+fi
+name="$(basename "$directory")"
+
+mkdir -p "$directory"
+cp -R "$TEMPLATES/." "$directory/"
+sed -i '' "s/@OWNER/@$owner/" "$directory/.github/CODEOWNERS" 2>/dev/null || sed -i "s/@OWNER/@$owner/" "$directory/.github/CODEOWNERS"
+mkdir -p "$directory/src" "$directory/tests/checks"
+
+cat > "$directory/package.json" <<JSON
+{
+  "name": "$name",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.3.5",
+  "engines": { "bun": "1.3.5" },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "bun test",
+    "version": "bun run scripts/version.ts",
+    "check:hygiene": "bun run scripts/checks/hygiene.ts",
+    "check": "bun run typecheck && bun run lint && bun run format:check && bun run check:hygiene && bun run test"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/bun": "1.3.14",
+    "eslint": "10.10.0",
+    "eslint-config-prettier": "10.1.8",
+    "prettier": "3.9.6",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.70.0"
+  }
+}
+JSON
+cat > "$directory/tsconfig.json" <<'JSON'
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "types": ["bun"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts", "scripts/**/*.ts"]
+}
+JSON
+cat > "$directory/.prettierrc.json" <<'JSON'
+{ "printWidth": 100, "semi": true, "singleQuote": false, "trailingComma": "all", "endOfLine": "lf" }
+JSON
+# Hand-edited HTML must not fail format:check, nor may the files OpenRig and the loop place in a
+# worker worktree (context collector, local settings, worker brief and report, managed instruction
+# blocks). Add to a .prettierignore the templates carry.
+touch "$directory/.prettierignore"
+for pattern in docs/incoming.html .openrig/ .claude/ '.worker-*' CLAUDE.md AGENTS.md; do
+  grep -qxF "$pattern" "$directory/.prettierignore" || echo "$pattern" >> "$directory/.prettierignore"
+done
+cat > "$directory/eslint.config.js" <<'JS'
+import js from "@eslint/js";
+import prettier from "eslint-config-prettier";
+import tseslint from "typescript-eslint";
+
+export default tseslint.config(
+  { ignores: ["node_modules/", "dist/", ".openrig/", ".claude/"] },
+  js.configs.recommended,
+  ...tseslint.configs.recommended,
+  prettier,
+);
+JS
+cat > "$directory/.gitignore" <<'TXT'
+.DS_Store
+.env
+.env.*
+!.env.example
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+*.log
+.claude/worktrees/
+TXT
+cat > "$directory/README.md" <<MD
+# $name
+
+What the software is, how to run it, and where the contracts are. Written in the first pull request.
+
+\`\`\`sh
+bun install --frozen-lockfile
+bun run check
+\`\`\`
+
+- Working policy: [CONTRIBUTING.md](CONTRIBUTING.md); contributor instructions: [AGENTS.md](AGENTS.md).
+- Accepted decisions: [docs/decisions/](docs/decisions/).
+MD
+cat > "$directory/src/index.ts" <<'TS'
+export const name = "replace me";
+TS
+cat > "$directory/tests/checks/hygiene.test.ts" <<'TS'
+import { expect, test } from "bun:test";
+import { checkCommitMessage } from "../../scripts/checks/hygiene.ts";
+
+test("a counterexample commit subject is rejected", () => {
+  expect(checkCommitMessage("abcdef0", "Add the thing").map((f) => f.code)).toEqual([
+    "subject-format",
+  ]);
+  expect(checkCommitMessage("abcdef0", "feat(x): add the thing")).toEqual([]);
+});
+TS
+
+cd "$directory"
+git init -q -b main
+# With Bun present, install the pinned tools, write the lockfile the workflows freeze against, and
+# format the generated files so the first `bun run check` is green.
+bun="${BUN_PATH:-$HOME/.bun/bin/bun}"
+[ -x "$bun" ] || bun="$(command -v bun || true)"
+if [ -n "$bun" ]; then
+  "$bun" install >/dev/null 2>&1
+  "$bun" run format >/dev/null 2>&1
+else
+  echo "new-repo: bun not found; run bun install and bun run format before the first check" >&2
+fi
+git add -A
+git commit -q -m "chore(repo): initialize to the standard"
+git tag -a v0.1.0 -m "initial version" -q 2>/dev/null || git tag -a v0.1.0 -m "initial version"
+git branch develop
+git checkout -q develop
+echo "new-repo: $directory initialized on main (tagged v0.1.0), on develop"
+
+if [ -n "$github" ]; then
+  gh repo create "$github" "$visibility" --source=. --remote=origin --description "$name" >/dev/null
+  git push -q -u origin main
+  git push -q -u origin develop
+  gh api -X PATCH "repos/$github" -f default_branch=develop -F allow_squash_merge=false -F allow_rebase_merge=false -F delete_branch_on_merge=true >/dev/null
+  for ruleset in develop main; do
+    if gh api -X POST "repos/$github/rulesets" --input "$RULESETS/$ruleset.json" >/dev/null 2>&1; then
+      echo "new-repo: ruleset $ruleset applied"
+    else
+      echo "new-repo: ruleset $ruleset NOT applied (the plan may not allow rulesets on a private repository); apply it later with: gh api -X POST repos/$github/rulesets --input $RULESETS/$ruleset.json" >&2
+    fi
+  done
+  echo "new-repo: https://github.com/$github created; default branch develop"
+fi
+
+root="$(pwd -P)"
+mode=local; [ -z "$github" ] || mode=owner
+line="$(printf '%s %s %s develop' "${github:-$owner/$name}" "$root" "$mode")"
+repos_conf="${DEV_PLATFORM_REPOS:-$HOME/.config/dev-platform/repos.conf}"
+personal_conf="${DEV_PLATFORM_PERSONAL:-$HOME/.config/dev-platform/personal.conf}"
+if [ "$register" = 1 ]; then
+  mkdir -p "$(dirname "$repos_conf")"
+  if awk -v r="${github:-$owner/$name}" '$1==r {found=1} END {exit !found}' "$repos_conf" 2>/dev/null; then
+    echo "new-repo: ${github:-$owner/$name} is already in $repos_conf; left unchanged" >&2
+  else
+    printf '%s\n' "$line" >> "$repos_conf"; echo "new-repo: registered in $repos_conf as $mode"
+  fi
+  if [ "$personal" = 1 ] && ! grep -qxF "$root" "$personal_conf" 2>/dev/null; then
+    printf '%s\n' "$root" >> "$personal_conf"; echo "new-repo: listed in $personal_conf as your own project"
+  fi
+elif awk -v p="$root" '$2==p {found=1} END {exit !found}' "$repos_conf" 2>/dev/null; then
+  echo "new-repo: already listed in $repos_conf"
+  if grep -qxF "$root" "$personal_conf" 2>/dev/null; then echo "new-repo: already listed in $personal_conf as your own project"; fi
+else
+  echo "new-repo: to plan and build it with Helm and the loop, add this line to $repos_conf:"
+  printf '  %s\n' "$line"
+  echo "new-repo: and, if it is your own project, add $root to $personal_conf (new-repo --register --personal does both next time)"
+fi

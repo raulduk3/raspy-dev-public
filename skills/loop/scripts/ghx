@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# ghx: run one `gh` command under the identity configured for the repository.
+#
+# Identity per repository comes from ~/.config/dev-platform/repos.conf (third column):
+#   owner -> the human's own gh login. Allowed only in direct reply to the owner's message in the
+#            same session; never scheduled.
+#   bot   -> the machine user's fine-grained token from 1Password, injected into this one process
+#            only. Refuses if the token does not exist.
+#   local -> no GitHub at all; refused.
+#   unmapped repositories are refused.
+#
+# Usage: ghx <owner/repo> <gh args...>      e.g. ghx owner/name issue comment 5 --body x
+# The bot token never enters a shell variable the caller can read; it is read by `op` into this
+# process's environment and the process exits. Two identities never share a shell.
+set -eu
+repo="${1:?owner/repo}"; shift
+CONF="${DEV_PLATFORM_REPOS:-$HOME/.config/dev-platform/repos.conf}"
+BRIEF_CONF="${DEV_PLATFORM_BRIEF:-$HOME/.config/dev-platform/brief.conf}"
+[ -f "$BRIEF_CONF" ] && . "$BRIEF_CONF"
+BOT_REF="${DEV_PLATFORM_BOT_TOKEN_REF:-op://Private/dev-platform bot GitHub token/credential}"
+repository_identity() {
+  local common
+  common="$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 1
+  [ -n "$common" ] && (cd "$common" && pwd -P)
+}
+identity="$(awk -v r="$repo" '$1==r {print $3}' "$CONF" 2>/dev/null | head -1)"
+case "${1:-} ${2:-}" in
+  "pr merge"|"pr ready"|"pr review"|"release create"|"repo delete"|api\ *)
+    echo "ghx: requested operation is an owner's act; refused" >&2; exit 3 ;;
+esac
+# Reject alternate repository/host switches; identity was selected for this repo only.
+for arg in "$@"; do
+  case "$arg" in --repo|--repo=*|-R|-R?*|--hostname|--hostname=*)
+    echo "ghx: repository/host override refused" >&2; exit 3 ;;
+  esac
+done
+case "$identity" in
+  local)
+    echo "ghx: $repo is a local repository; it has no GitHub" >&2; exit 3 ;;
+  owner)
+    # The owner's login. Refuse the writes that are never delegated.
+    case "${1:-} ${2:-} ${3:-}" in
+      "pr merge "*|"pr ready "*|"pr review "*|"release create "*|"api "*"PUT"*|"repo delete "*)
+        echo "ghx: '$1 $2' on $repo is the owner's own act; refused" >&2; exit 3 ;;
+    esac
+    exec gh "$@" --repo "$repo"
+    ;;
+  bot)
+    checkout="$(awk -v r="$repo" '$1==r {print $2; exit}' "$CONF")"
+    personal=0
+    personal_conf="${DEV_PLATFORM_PERSONAL:-$HOME/.config/dev-platform/personal.conf}"
+    if [ -f "$personal_conf" ] && repo_identity="$(repository_identity "$checkout")"; then
+      while IFS= read -r entry; do
+        case "$entry" in ''|'#'*) continue ;; esac
+        entry="$(repository_identity "${entry/#\~/$HOME}")" || continue
+        if [ "$repo_identity" = "$entry" ]; then personal=1; break; fi
+      done < "$personal_conf"
+    fi
+    [ "$personal" = 1 ] || { echo 'ghx: bot identity refused on a professional repository' >&2; exit 3; }
+    if ! op read -n "$BOT_REF" >/dev/null 2>&1; then
+      echo "ghx: no bot token at '$BOT_REF' (account not created yet); refusing to fall back to the owner's login on $repo" >&2
+      exit 4
+    fi
+    GH_TOKEN="$(op read -n "$BOT_REF")" exec gh "$@" --repo "$repo"
+    ;;
+  *)
+    echo "ghx: $repo is not mapped in $CONF" >&2; exit 2 ;;
+esac

@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Incoming requirement candidates</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #ffffff;
+        --text: #1f2328;
+        --muted: #59636e;
+        --rule: #d1d9e0;
+        --satisfied: #6e7781;
+        --satisfied-tint: #f3f4f6;
+        --clarifies: #1a7f37;
+        --clarifies-tint: #eaf7ee;
+        --amends: #b45309;
+        --amends-tint: #fff5e0;
+        --contradicts: #cf222e;
+        --contradicts-tint: #ffebe9;
+        --new: #0969da;
+        --new-tint: #e8f1fc;
+        --nonsense: #8c959f;
+        --nonsense-tint: #f6f8fa;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0d1117;
+          --text: #e6edf3;
+          --muted: #9198a1;
+          --rule: #3d444d;
+          --satisfied: #9198a1;
+          --satisfied-tint: rgba(145, 152, 161, 0.14);
+          --clarifies: #3fb950;
+          --clarifies-tint: rgba(63, 185, 80, 0.14);
+          --amends: #e3a008;
+          --amends-tint: rgba(227, 160, 8, 0.14);
+          --contradicts: #f85149;
+          --contradicts-tint: rgba(248, 81, 73, 0.14);
+          --new: #58a6ff;
+          --new-tint: rgba(88, 166, 255, 0.14);
+          --nonsense: #6e7681;
+          --nonsense-tint: rgba(110, 118, 129, 0.1);
+        }
+      }
+
+      @media print {
+        :root {
+          color-scheme: light;
+          --bg: #ffffff;
+          --text: #000000;
+          --muted: #444444;
+          --rule: #999999;
+          --satisfied: #6e7781;
+          --satisfied-tint: #f3f4f6;
+          --clarifies: #1a7f37;
+          --clarifies-tint: #eaf7ee;
+          --amends: #b45309;
+          --amends-tint: #fff5e0;
+          --contradicts: #cf222e;
+          --contradicts-tint: #ffebe9;
+          --new: #0969da;
+          --new-tint: #e8f1fc;
+          --nonsense: #8c959f;
+          --nonsense-tint: #f6f8fa;
+        }
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0 auto;
+        max-width: 52rem;
+        padding: 2rem 1.25rem 4rem;
+        background: var(--bg);
+        color: var(--text);
+        font: 1rem/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+
+      h1 {
+        margin: 0 0 1rem;
+        font-size: 1.75rem;
+        line-height: 1.2;
+      }
+
+      h2 {
+        margin: 2.5rem 0 1rem;
+        padding-bottom: 0.25rem;
+        border-bottom: 1px solid var(--rule);
+        font-size: 1.25rem;
+      }
+
+      h3 {
+        margin: 0 0 0.5rem;
+        font-size: 1rem;
+      }
+
+      p {
+        margin: 0 0 0.5rem;
+      }
+
+      .legend {
+        margin: 1rem 0 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .legend li {
+        margin: 0 0 0.375rem;
+        padding: 0.375rem 0.75rem;
+        border-left-style: solid;
+        border-left-width: 0.375rem;
+      }
+
+      .candidate {
+        margin: 0 0 1rem;
+        padding: 0.75rem 1rem;
+        border: 1px solid var(--rule);
+        border-left-width: 0.375rem;
+        break-inside: avoid;
+      }
+
+      .satisfied {
+        border-left-color: var(--satisfied);
+        background: var(--satisfied-tint);
+      }
+
+      .clarifies {
+        border-left-color: var(--clarifies);
+        background: var(--clarifies-tint);
+      }
+
+      .amends {
+        border-left-color: var(--amends);
+        background: var(--amends-tint);
+      }
+
+      .contradicts {
+        border-left-color: var(--contradicts);
+        background: var(--contradicts-tint);
+      }
+
+      .new {
+        border-left-color: var(--new);
+        background: var(--new-tint);
+      }
+
+      .nonsense {
+        border-left-color: var(--nonsense);
+        background: var(--nonsense-tint);
+        color: var(--muted);
+      }
+
+      .nonsense .text {
+        text-decoration: line-through;
+      }
+
+      .label {
+        font-weight: 600;
+      }
+
+      .statement {
+        font-size: 1.0625rem;
+      }
+
+      .badge {
+        display: inline-block;
+        padding: 0 0.5rem;
+        border: 1px solid currentColor;
+        border-radius: 0.25rem;
+        font-weight: 600;
+      }
+
+      .discussion {
+        margin-top: 0.75rem;
+        padding-top: 0.5rem;
+        border-top: 1px dashed var(--rule);
+      }
+
+      .discussion .area {
+        min-height: 3rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Incoming requirement candidates</h1>
+
+    <p>
+      How to use this document. Each block below is a candidate requirement derived from a raw
+      record, ranked against the specification for congruency and complexity. Read the blocks and
+      discuss them. The page is static, so the file is edited in a text editor and committed like
+      any document; the browser is for reading and for copying a block. When you decide a candidate
+      is worth acting on, select the block, copy it, and paste it into an intake session. Nothing
+      else reads this file, and nothing in it changes the specification until a decision is
+      accepted.
+    </p>
+
+    <h2>Legend</h2>
+    <p>
+      Color marks congruency only, and the class name is always printed in the block. Complexity is
+      the size badge. An easy patch is clarifies or amends at S. A hard change is amends or
+      contradicts at L or XL.
+    </p>
+    <ul class="legend">
+      <li class="satisfied">
+        <span class="label">already satisfied</span> (gray): the specification already requires it.
+      </li>
+      <li class="clarifies">
+        <span class="label">clarifies</span> (green): it sharpens an item without changing it.
+      </li>
+      <li class="amends">
+        <span class="label">amends</span> (amber): it changes an existing item.
+      </li>
+      <li class="contradicts">
+        <span class="label">contradicts</span> (red): it conflicts with an existing item.
+      </li>
+      <li class="new"><span class="label">brand new</span> (blue): the specification is silent.</li>
+      <li class="nonsense">
+        <span class="label">nonsense</span> (muted, struck through): it cannot be acted on.
+      </li>
+    </ul>
+    <p>
+      Kind is bug, amendment, feature or question. Complexity is S, M, L or XL, from the items
+      touched, the files likely in scope, external provider effects and data migrations.
+    </p>
+
+    <!-- batches below, newest first -->
+
+    <!--
+    Example batch. Copy it directly under the marker above, replace the dates, ids and words, set the
+    class of each article to its congruency class (satisfied, clarifies, amends, contradicts, new or
+    nonsense), and delete this note.
+
+    <section class="batch">
+      <h2>2026-09-17, stakeholder call</h2>
+
+      <article class="candidate amends" id="C-2026-09-17-1">
+        <h3>Candidate C-2026-09-17-1</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The service MUST reject a request that carries no credential.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-XX-01, TDD-1.1.1</p>
+        <p><span class="label">Rationale:</span> One requirement and one handler change, no provider effect.</p>
+        <p><span class="label">Source:</span> stakeholder call, 2026-09-17</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+    </section>
+    -->
+  </body>
+</html>

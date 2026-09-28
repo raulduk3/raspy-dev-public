@@ -1,0 +1,9 @@
+source: https://github.com/cursor/plugins/tree/main/pstack
+commit: fadd23794c0075468eb8964b0fd93e06e09486ad
+committed: 2026-09-24T14:37:59-07:00
+vendored: 2026-09-24
+license: MIT, Copyright (c) 2026 Lauren Tan (see LICENSE)
+
+This directory is an unmodified copy of that path at that commit. Do not edit it.
+bin/pstack-port builds skills/ from it; the platform's adaptations live in
+integrations/pstack/ and docs/pstack-platform.md.

@@ -1,0 +1,35 @@
+version: "0.2"
+name: development-helm
+summary: "review: a control seat, two overseers on different providers (Codex and Claude) for a second opinion on every child, and worker seats."
+pods:
+  - id: control
+    label: Control
+    members:
+      - id: lead
+        label: Coding control
+        agent_ref: local:agents/control
+        profile: default
+        runtime: claude-code
+        cwd: "."
+    edges: []
+  - id: review
+    label: Review
+    members:
+      - id: overseer
+        label: Overseer
+        agent_ref: local:agents/overseer
+        profile: default
+        runtime: codex
+        cwd: "."
+      - id: second
+        label: Second overseer
+        agent_ref: local:agents/overseer
+        profile: default
+        runtime: claude-code
+        cwd: "."
+    edges: []
+  - id: workers
+    label: Workers
+    members: []
+    edges: []
+edges: []

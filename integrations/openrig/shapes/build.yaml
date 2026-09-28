@@ -1,0 +1,29 @@
+version: "0.2"
+name: development-helm
+summary: "build: a control seat that directs the goal branch, a Codex overseer that reviews each finished child, and one worker seat per task."
+pods:
+  - id: control
+    label: Control
+    members:
+      - id: lead
+        label: Coding control
+        agent_ref: local:agents/control
+        profile: default
+        runtime: claude-code
+        cwd: "."
+    edges: []
+  - id: review
+    label: Review
+    members:
+      - id: overseer
+        label: Overseer
+        agent_ref: local:agents/overseer
+        profile: default
+        runtime: codex
+        cwd: "."
+    edges: []
+  - id: workers
+    label: Workers
+    members: []
+    edges: []
+edges: []

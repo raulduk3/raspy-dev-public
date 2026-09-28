@@ -1,0 +1,19 @@
+name: development-overseer
+version: "1.0"
+description: Read-only review of the development loop's worker branches for the owner.
+imports: []
+profiles:
+  default:
+    uses:
+      skills: []
+      guidance: [role]
+      subagents: []
+      plugins: []
+      runtime_resources: []
+resources:
+  guidance:
+    - id: role
+      path: guidance/role.md
+startup:
+  files: []
+  actions: []
