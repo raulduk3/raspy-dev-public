@@ -583,9 +583,10 @@ class LocalLoopTests(Fixture):
         (self.repo / 'docs/tasks/4-spec.md').write_text(
             '# Spec\n\nStatus: ready\nLabels: spec\nScope: docs/spec\nDepends on: none\n')
         self.commit()
+        # Tier slugs resolve through the tier lines; a Claude worker skips the Codex family.
         (self.config / 'pstack-models.md').write_text(
-            '# budget: medium (high)\nfeature, refactoring: sonnet-high\n'
-            'judgment and prose: fable-max, codex:gpt-5.6-sol-max\n')
+            '# budget: medium (high)\ntier implementation: sonnet\ntier judgment: codex:gpt-5.6-sol, fable\n'
+            'feature, refactoring: implementation-high\njudgment and prose: judgment-max\n')
         calls = self.base / 'claude.calls'
         claude = self.fakebin / 'claude'
         claude.write_text('#!/usr/bin/env python3\nimport json, sys\n'
@@ -606,9 +607,11 @@ class LocalLoopTests(Fixture):
             argv = launched[issue]
             self.assertEqual(argv[argv.index('--model') + 1], model)
             self.assertEqual(argv[argv.index('--effort') + 1], effort)
-        # A codex: entry is skipped for a Claude worker; the first Claude model on the line wins.
-        (self.config / 'pstack-models.md').write_text('judgment and prose: codex:gpt-5.6-sol-max\n')
+        # A concrete slug still pins a role; a line with nothing Claude can run takes the default tier.
+        (self.config / 'pstack-models.md').write_text('judgment and prose: opus-high\n')
         self.assertIn('(opus)', self.loop('resume', '4', env=env).stdout)
+        (self.config / 'pstack-models.md').write_text('judgment and prose: codex:gpt-5.6-sol-max\n')
+        self.assertIn('(fable)', self.loop('resume', '4', env=env).stdout)
 
     def test_tasks_refuse_a_github_backed_repository(self):
         self.configure(base='develop', personal=True, identity='owner')

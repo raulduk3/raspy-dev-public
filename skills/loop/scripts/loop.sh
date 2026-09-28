@@ -86,7 +86,6 @@ for limit in "$CAP" "$MAX_TURNS" "$MAX_SECONDS" "$TOKEN_CEILING"; do
   case "$limit" in ''|*[!0-9]*|0) echo "loop: worker limits must be positive integers" >&2; exit 2 ;; esac
 done
 [[ "$repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "loop: invalid owner/repo" >&2; exit 2; }
-WORKER_MODEL="${LOOP_WORKER_MODEL:-sonnet}"
 today="$(date +%Y-%m-%d)"
 ctl="$state/${repo//\//__}"; mkdir -p "$ctl"
 GHX="$here/ghx"
@@ -179,21 +178,21 @@ rig="$(rig_branch)"; rigd="${rig//\//__}"; [ -n "$rig" ] || rigd="_next"
 out="$ctl/$rigd"; mkdir -p "$out/workers"
 
 PSTACK_MODELS="${DEV_PLATFORM_PSTACK_MODELS:-$HOME/.config/dev-platform/pstack-models.md}"
-pstack_model() {  # role label -> the first model on its line in the setup-pstack file, if any
-  [ -f "$PSTACK_MODELS" ] || return 0
-  awk -v r="$1: " 'index($0, r) == 1 { v = substr($0, length(r) + 1); sub(/,.*/, "", v); gsub(/^ +| +$/, "", v); print v; exit }' "$PSTACK_MODELS"
-}
+PSTACK_MODEL="$here/../../../bin/pstack-model"
 tier_model() {  # issue labels -> Claude Code model, optionally <model>-<effort> (docs/models.md tiers)
   [ -z "${LOOP_MODEL:-}" ] || { echo "$LOOP_MODEL"; return 0; }
-  local role fallback slug
+  local role
   case ",$1," in
-    *",spec,"*|*",decision,"*|*",privacy,"*|*",security,"*) role="judgment and prose"; fallback=opus ;;
-    *",documentation,"*) echo "haiku"; return 0 ;;
-    *) role="feature, refactoring"; fallback="$WORKER_MODEL" ;;
+    *",spec,"*|*",decision,"*|*",privacy,"*|*",security,"*) role="judgment and prose" ;;
+    *",documentation,"*) role="mechanical" ;;
+    *) role="feature, refactoring"
+       if [ -n "${LOOP_WORKER_MODEL:-}" ] && ! grep -q "^$role: " "$PSTACK_MODELS" 2>/dev/null; then
+         echo "$LOOP_WORKER_MODEL"; return 0
+       fi ;;
   esac
-  slug="$(pstack_model "$role")"
   # A worker has no parent chat to inherit, and this loop starts Claude workers only.
-  case "$slug" in ''|inherit-parent|auto|codex:*) echo "$fallback" ;; *) echo "$slug" ;; esac
+  DEV_PLATFORM_PSTACK_MODELS="$PSTACK_MODELS" "$PSTACK_MODEL" resolve "$role" --runtime claude --no-inherit \
+    | awk -F'\t' 'NR == 1 { print $1 ($2 == "" ? "" : "-" $2) }'
 }
 running_workers() {  # "pid issue" only for verified supervisors owned by this repository
   python3 "$here/worker-run.py" --running "$ctl" "$(repo_dir)"

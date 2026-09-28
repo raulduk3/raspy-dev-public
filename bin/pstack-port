@@ -9,6 +9,8 @@ Her text stays as she wrote it. A port makes only these changes:
     the folder, the frontmatter, its description, and every mention in the ported Markdown;
     her TypeScript keeps its internal names so its lockfile and tests stay hers;
   - the frontmatter `name` becomes the folder name (clients key skills by it);
+  - every model she names becomes a tier slug (MODEL_SUBS), so no ported skill names a product;
+    bin/pstack-model resolves the slug to a model and effort for the runtime at hand;
   - one platform line after the frontmatter points at docs/pstack-platform.md, the map from
     Cursor's tools to this platform's;
   - files under integrations/pstack/overlays/<skill>/ replace the vendored file of the same path.
@@ -30,6 +32,17 @@ PARKED = {
 }
 RENAMED = {'poteto-mode': 'dev-plat'}
 MARKDOWN_SUBS = (('poteto-mode', 'dev-plat'), ('poteto-agent', 'dev-plat-agent'))
+# Her defaults, by the tier they stand for. Her panels pair a first and second judgment family
+# with an implementation family; `.2` keeps that second family distinct.
+MODEL_SUBS = (
+    ('claude-opus-5-5-max', 'judgment-max'),
+    ('claude-opus-5-5-medium', 'judgment-medium'),
+    ('gpt-5.6-sol-max', 'judgment.2-max'),
+    ('grok-4.7-xhigh-fast', 'implementation-xhigh'),
+    ('grok-4.7-medium-fast', 'implementation-medium'),
+    ('Families go by prefix: `claude-*`, `gpt-*`, and `grok-*`.',
+     'Families are the entries of the model file\'s `tier` lines; `pstack-model resolve` walks them.'),
+)
 DESCRIPTIONS = {
     'dev-plat': ('"The platform\'s engineering mode, from pstack by Lauren Tan: concise, detailed responses,'
                  ' deliberate subagents, unslopped prose, simple code, and verified work, routed through'
@@ -50,7 +63,7 @@ def adapt(skill_md, name, upstream):
     note = NOTE.format(origin=origin, adapted=ADAPTED.format(name=upstream) if (OVERLAYS / upstream).is_dir() else '')
     for path in skill_md.parent.rglob('*.md'):
         body = path.read_text()
-        for old, new in MARKDOWN_SUBS:
+        for old, new in MARKDOWN_SUBS + MODEL_SUBS:
             body = body.replace(old, new)
         path.write_text(body)
     text = skill_md.read_text()

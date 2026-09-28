@@ -1,0 +1,155 @@
+#!/usr/bin/env python3
+"""Resolve a pstack role or model slug to a concrete model and effort for one runtime.
+
+  pstack-model resolve <role-or-slug> [--runtime any|claude|codex] [--all] [--no-inherit]
+  pstack-model defaults      print the default model file (tiers, then roles)
+
+Skills name models by tier, never by product: `<tier>[.<n>][-<effort>]`, for example
+`judgment-max`, `judgment.2-max`, `implementation-xhigh`, `mechanical`. A `tier` line in the
+model file lists that tier's families in order; `.n` picks the nth (panels use it for a second
+family), and the effort is the last hyphen token on the ladder max > xhigh > high > medium > low.
+A concrete slug (`fable-max`, `codex:gpt-5.6-sol-high`) passes through, and `inherit-parent` or
+`auto` means the parent chat's model. The file is ~/.config/dev-platform/pstack-models.md
+(DEV_PLATFORM_PSTACK_MODELS overrides); a missing file or line falls back to DEFAULTS below.
+
+Output is one `<model>\t<effort>` line per entry (`inherit\t` for the aliases, empty effort when
+the slug has none). Without --all, only the first entry the runtime can run. `claude` skips
+`codex:` families, `codex` keeps only them, drops the prefix and caps the effort at xhigh. Exit 1 when nothing
+resolves.
+"""
+import os
+from pathlib import Path
+import sys
+
+EFFORTS = ('max', 'xhigh', 'high', 'medium', 'low')
+ALIASES = ('inherit-parent', 'auto')
+PANEL = 'judgment-max, judgment.2-max, implementation-xhigh'
+DEFAULTS = f"""\
+# pstack model configuration. Tier lines map each tier to its model families, in order;
+# role lines name a tier slug `<tier>[.<n>]-<effort>` or a concrete model. Delete a line to fall
+# back to the default. `inherit-parent` or `auto`: the role runs on the parent chat model.
+# budget: unlimited (max)
+tier judgment: fable, codex:gpt-5.6-sol, opus
+tier implementation: sonnet, codex:gpt-5.6-sol
+tier mechanical: haiku
+feature, refactoring: implementation-xhigh
+bug-fix: implementation-xhigh
+perf-issue: implementation-xhigh
+hillclimb: implementation-xhigh
+judgment and prose: judgment-max
+hardest tasks: judgment-max
+how explorer: implementation-xhigh
+how explainer: judgment-max
+why investigators: implementation-xhigh
+why synthesizer: judgment-max
+reflect tooling: judgment.2-max
+reflect judgment, divergent, synthesizer: judgment-max
+arena runners: {PANEL}
+arena cross-judge pool: {PANEL}
+swarm workers: implementation-xhigh
+architect runners: {PANEL}
+interrogate reviewers: {PANEL}
+"""
+
+
+def parse(text):
+    tiers, roles = {}, {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith('#') or ': ' not in line:
+            continue
+        key, value = line.split(': ', 1)
+        values = [v.strip() for v in value.split(',') if v.strip()]
+        if key.startswith('tier '):
+            tiers[key[5:].strip()] = values
+        else:
+            roles[key] = values
+    return tiers, roles
+
+
+def load():
+    tiers, roles = parse(DEFAULTS)
+    path = Path(os.environ.get('DEV_PLATFORM_PSTACK_MODELS', Path.home() / '.config/dev-platform/pstack-models.md'))
+    if path.is_file():
+        user_tiers, user_roles = parse(path.read_text())
+        tiers.update(user_tiers)
+        roles.update(user_roles)
+    return tiers, roles
+
+
+def split_effort(slug):
+    head, _, tail = slug.rpartition('-')
+    return (head, tail) if head and tail in EFFORTS else (slug, '')
+
+
+def expand(slug, tiers):
+    """A slug -> [(model, effort)] candidates, the tier's chosen family first."""
+    if slug in ALIASES:
+        return [('inherit', '')]
+    base, effort = split_effort(slug)
+    tier, _, nth = base.partition('.')
+    if tier in tiers and (not nth or nth.isdigit()):
+        families = tiers[tier]
+        start = (int(nth) - 1) % len(families) if nth and families else 0
+        return [(family, effort) for family in families[start:] + families[:start]]
+    return [(base, effort)]
+
+
+def runnable(model, effort, runtime):
+    if model == 'inherit' or runtime == 'any':
+        return model, effort
+    if runtime == 'codex':
+        if not model.startswith('codex:'):
+            return None
+        return model[6:], 'xhigh' if effort == 'max' else effort  # Codex has no effort above xhigh.
+    return None if model.startswith('codex:') else (model, effort)
+
+
+def pick(slugs, tiers, runtime, inherit):
+    """The first runnable candidate of each slug, in order."""
+    out = []
+    for slug in slugs:
+        for model, effort in expand(slug, tiers):
+            picked = runnable(model, effort, runtime)
+            if picked and (inherit or picked[0] != 'inherit'):
+                out.append(picked)
+                break
+    return out
+
+
+def resolve(target, runtime='any', every=False, inherit=True):
+    tiers, roles = load()
+    slugs = roles.get(target, [target])
+    out = pick(slugs, tiers, runtime, inherit)
+    default = parse(DEFAULTS)[1].get(target)
+    if not out and default and default != slugs:  # Nothing on the owner's line runs here.
+        out = pick(default, tiers, runtime, inherit)
+    return out if every else out[:1]
+
+
+def main(argv):
+    if argv[:1] == ['defaults'] and len(argv) == 1:
+        sys.stdout.write(DEFAULTS)
+        return 0
+    if argv[:1] != ['resolve'] or len(argv) < 2:
+        sys.exit(__doc__)
+    target, runtime, every, inherit = argv[1], 'any', False, True
+    rest = argv[2:]
+    while rest:
+        flag = rest.pop(0)
+        if flag == '--runtime' and rest and rest[0] in ('any', 'claude', 'codex'):
+            runtime = rest.pop(0)
+        elif flag == '--all':
+            every = True
+        elif flag == '--no-inherit':
+            inherit = False
+        else:
+            sys.exit(__doc__)
+    found = resolve(target, runtime, every, inherit)
+    for model, effort in found:
+        print(f'{model}\t{effort}')
+    return 0 if found else 1
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))

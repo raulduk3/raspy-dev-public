@@ -113,5 +113,5 @@ default branch; a professional repository uses `develop`. An open rig branch kee
 base. One rig branch is open per repository at a time. `LOOP_WORKER_MAX_TURNS`,
 `LOOP_WORKER_MAX_SECONDS` and `LOOP_WORKER_TOKEN_CEILING` bound workers; the token ceiling is a
 prompt budget, not a spending cap. A quota failure stops the lane rather than switching accounts.
-Worker models come from `~/.config/dev-platform/pstack-models.md` when `/setup-pstack` wrote it
-(see `docs/models.md`).
+Worker models come from `bin/pstack-model`, which reads `~/.config/dev-platform/pstack-models.md`
+when `/setup-pstack` wrote it and its own tier defaults otherwise (see `docs/models.md`).

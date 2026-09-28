@@ -1,5 +1,7 @@
 """The pstack skills in skills/ are what bin/pstack-port builds from the unmodified vendor copy."""
+import os
 from pathlib import Path
+import re
 import subprocess
 import unittest
 
@@ -31,6 +33,32 @@ class PstackPort(unittest.TestCase):
         self.assertNotIn('Write `~/.cursor', text)
         self.assertIn('integrations/pstack/overlays/setup-pstack', text)
         self.assertIn('pstack-models.md', (ROOT / 'skills/loop/scripts/loop.sh').read_text())
+
+    def test_no_ported_skill_names_a_model(self):
+        product = re.compile(r'claude-opus|gpt-5|grok|\b(fable|opus|sonnet|haiku)\b|codex:')
+        for name in PORTED:
+            if name == 'setup-pstack':  # It sorts detected families into tiers, so it names examples.
+                continue
+            for path in (ROOT / 'skills' / name).rglob('*.md'):
+                with self.subTest(path=str(path.relative_to(ROOT))):
+                    self.assertIsNone(product.search(path.read_text()))
+
+    def test_every_tier_slug_a_skill_names_resolves(self):
+        env = dict(os.environ, DEV_PLATFORM_PSTACK_MODELS=os.devnull)
+        slugs = set()
+        for name in PORTED:
+            for path in (ROOT / 'skills' / name).rglob('*.md'):
+                slugs |= set(re.findall(r'`((?:judgment|implementation|mechanical)(?:\.\d+)?(?:-[a-z]+)?)`', path.read_text()))
+        self.assertIn('judgment.2-max', slugs)
+        for slug in sorted(slugs):
+            with self.subTest(slug=slug):
+                subprocess.run([str(ROOT / 'bin/pstack-model'), 'resolve', slug], check=True,
+                               capture_output=True, env=env)
+
+    def test_the_setup_skill_shows_the_resolver_defaults(self):
+        defaults = subprocess.run([str(ROOT / 'bin/pstack-model'), 'defaults'], capture_output=True,
+                                  text=True, check=True).stdout
+        self.assertIn('```\n' + defaults + '```', (ROOT / 'skills/setup-pstack/SKILL.md').read_text())
 
 
 if __name__ == '__main__':
