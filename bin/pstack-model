@@ -14,7 +14,7 @@ A concrete slug (`fable-max`, `codex:gpt-5.6-sol-high`) passes through, and `inh
 
 Output is one `<model>\t<effort>` line per entry (`inherit\t` for the aliases, empty effort when
 the slug has none). Without --all, only the first entry the runtime can run. `claude` skips
-`codex:` families, `codex` keeps only them, drops the prefix and caps the effort at xhigh. Exit 1 when nothing
+`codex:` families, `codex` keeps only them and drops the prefix. Exit 1 when nothing
 resolves.
 """
 import os
@@ -101,7 +101,7 @@ def runnable(model, effort, runtime):
     if runtime == 'codex':
         if not model.startswith('codex:'):
             return None
-        return model[6:], 'xhigh' if effort == 'max' else effort  # Codex has no effort above xhigh.
+        return model[6:], effort
     return None if model.startswith('codex:') else (model, effort)
 
 

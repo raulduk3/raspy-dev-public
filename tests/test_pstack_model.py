@@ -33,8 +33,8 @@ class PstackModel(unittest.TestCase):
         self.assertEqual(self.resolve('arena runners', '--all', '--runtime', 'claude'),
                          [('fable', 'max'), ('opus', 'max'), ('sonnet', 'xhigh')])
 
-    def test_codex_takes_its_own_families_and_caps_effort(self):
-        self.assertEqual(self.resolve('reflect tooling', '--runtime', 'codex'), [('gpt-5.6-sol', 'xhigh')])
+    def test_codex_takes_its_own_families(self):
+        self.assertEqual(self.resolve('reflect tooling', '--runtime', 'codex'), [('gpt-5.6-sol', 'max')])
 
     def test_the_owners_tiers_and_roles_win(self):
         self.file.write_text('# budget: small (medium)\ntier judgment: opus\n'
