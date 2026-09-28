@@ -1,44 +1,42 @@
+<p align="center">
+  <img src="docs/images/raspy-dev.jpg" alt="A terracotta bowl with animals carved in relief around its rim" width="360">
+</p>
+
 <h1 align="center">raspy-dev</h1>
 
-<p align="center"><em>Say the goal. Watch a team of coding agents build it on one branch. Land it yourself.</em></p>
+<p align="center"><em>One small cockpit for many AI tools. Say what you want; watch a team build it on one branch; land it yourself.</em></p>
 
-<p align="center">
-  <a href="https://github.com/raulduk3/raspy-dev-public/actions/workflows/check.yml"><img alt="check" src="https://github.com/raulduk3/raspy-dev-public/actions/workflows/check.yml/badge.svg"></a>
-  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-3fb950"></a>
-  <img alt="Python 3" src="https://img.shields.io/badge/python-3-3776ab?logo=python&logoColor=white">
-  <img alt="Bash" src="https://img.shields.io/badge/bash-scripts-4eaa25?logo=gnubash&logoColor=white">
-  <img alt="Runs locally" src="https://img.shields.io/badge/runs-locally-8250df">
-</p>
+A small local platform for keeping AI-assisted software work organized, bounded and reviewable.
 
-<p align="center">
-  <a href="#start"><img alt="Start" src="https://img.shields.io/badge/%E2%96%B6%20Start-111?style=for-the-badge"></a>
-  <a href="skills/loop/SKILL.md"><img alt="The loop" src="https://img.shields.io/badge/The%20loop-d97757?style=for-the-badge&logo=anthropic&logoColor=white"></a>
-  <a href="skills"><img alt="Skills" src="https://img.shields.io/badge/Skills-0969da?style=for-the-badge"></a>
-  <a href="docs"><img alt="Docs" src="https://img.shields.io/badge/Docs-6e7781?style=for-the-badge"></a>
-</p>
+Not a framework or a product. It is the glue around an editor, a terminal and a few coding agents: templates, hooks, checks, skills and a loop. Every tool can help, git holds the truth, and a human is the only one who merges.
 
-A small local platform that keeps AI-assisted software work bounded and reviewable. Claude Code, Codex and [OpenRig](https://www.openrig.dev) seats share one set of hooks, skills and templates. Git is the record, and a human is the only one who merges.
+## Try it
 
-## Start
-
-```bash
-git clone https://github.com/raulduk3/raspy-dev-public.git && cd raspy-dev-public
-./bin/check                               # offline test suite: bash, git, python3, jq, PyYAML
-./bin/new-repo ~/Dev/tetris --register    # a new repository to the standard
+```text
+./bin/check                               the offline test suite
+./bin/new-repo ~/Dev/tetris --register    a new repository to the standard
 ```
 
-Then, in that repository, ask your agent to use the `intake` skill to spec the goal and the `loop` skill to build it: one branch per goal, one child branch per task, children merge up once their check passes, and you land the goal.
+Then ask your agent for the `intake` skill to spec the goal, and the `loop` skill to build it.
 
-## Inside
+```text
+goal
+  -> decision, spec and task files
+  -> a goal branch, and a child branch per task
+  -> workers in their own worktrees
+  -> checks and guardrails
+  -> merged up, then landed by you
+```
 
-| | |
-| --- | --- |
-| [`skills/`](skills) | intake, loop, tdd, architect, spec-lint and the engineering principles |
-| [`hooks/`](hooks) | guard, format, stop and session-length hooks for Claude Code and Codex |
-| [`templates/`](templates) | what `new-repo` copies into every project |
-| [`integrations/`](integrations) | OpenRig seats and shapes, pstack, VS Code |
-| [`docs/`](docs) | model routing, rules, runbooks and the rest |
+## Where things are
 
-## License
+```text
+bin/           commands
+skills/        intake, loop and the rest
+hooks/         guardrails for Claude Code and Codex
+templates/     what every new repository starts with
+integrations/  OpenRig, pstack, VS Code
+docs/          everything else
+```
 
-[MIT](LICENSE). `vendor/pstack` is MIT, © its upstream author; see [`vendor/pstack/UPSTREAM`](vendor/pstack/UPSTREAM).
+MIT. `vendor/pstack` keeps its own license.
