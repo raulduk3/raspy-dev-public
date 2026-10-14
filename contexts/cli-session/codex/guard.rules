@@ -1,0 +1,11 @@
+# Command rules, a second layer under the guard hook: the same refusals, by prefix.
+prefix_rule(pattern=["git", "push", "origin", "main"], decision="forbidden")
+prefix_rule(pattern=["git", "push", "origin", "master"], decision="forbidden")
+prefix_rule(pattern=["git", "push", "--force"], decision="forbidden")
+prefix_rule(pattern=["git", "push", "-f"], decision="forbidden")
+prefix_rule(pattern=["git", "rebase"], decision="forbidden")
+prefix_rule(pattern=["git", "reset", "--hard"], decision="forbidden")
+prefix_rule(pattern=["git", "commit", "--amend"], decision="forbidden")
+prefix_rule(pattern=["git", "filter-branch"], decision="forbidden")
+prefix_rule(pattern=["gh", "pr", "merge"], decision="forbidden")
+prefix_rule(pattern=["gh", "pr", "ready"], decision="forbidden")
