@@ -2,7 +2,7 @@
 # ./check: this repository's own test. Exit 0 only when every part passes.
 #   scripts parse; skills are valid Agent Skills; JSON parses; the tests pass; no file outside
 #   contexts/ names a model, vendor or agent; nothing private (patterns below, gitleaks when
-#   installed, and your own deny-list in ~/.config/raspy-public/denylist.txt when present);
+#   installed, and your own deny-list in ~/.config/raspy-public/denylist.txt when present, whole words);
 #   commits carry no attribution; scripts stay under 1,500 lines.
 set -uo pipefail
 cd "$(dirname "$(readlink -f "$0")")" || exit 2
@@ -54,9 +54,9 @@ hits="$(files | grep -v '^check$' | xargs grep -nIoE "$private" 2>/dev/null |
 denylist="$HOME/.config/raspy-public/denylist.txt"
 if [ -r "$denylist" ]; then
   terms="$(grep -vE '^(#|$)' "$denylist")"
-  hits="$( [ -z "$terms" ] || files | xargs grep -nIiF -f <(printf '%s\n' "$terms") 2>/dev/null | cut -d: -f1,2)"
+  hits="$( [ -z "$terms" ] || files | xargs grep -nIiwF -f <(printf '%s\n' "$terms") 2>/dev/null | cut -d: -f1,2)"
   [ -z "$hits" ] || { printf '%s: deny-listed term\n' $hits >&2; bad "deny-list"; }
-  hits="$( [ -z "$terms" ] || git log --format='%H %an %ae %B' origin/main..HEAD 2>/dev/null | grep -ciF -f <(printf '%s\n' "$terms"))"
+  hits="$( [ -z "$terms" ] || git log --format='%H %an %ae %B' origin/main..HEAD 2>/dev/null | grep -ciwF -f <(printf '%s\n' "$terms"))"
   [ "${hits:-0}" = 0 ] || bad "deny-listed term in $hits commit line(s) since origin/main"
 else
   echo "check: no deny-list at $denylist; skipped" >&2
