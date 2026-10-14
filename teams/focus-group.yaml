@@ -1,0 +1,52 @@
+# rig up teams/focus-group.yaml --cwd <your project>   (every seat works in that project)
+# runtime: pick the agent each seat runs (claude-code, codex, pi, ...).
+version: "0.2"
+name: focus-group
+summary: "A moderator and three participants reading the same material as different users."
+pods:
+  - id: moderator
+    label: Moderator
+    members:
+      - id: moderator
+        agent_ref: local:seat
+        profile: default
+        runtime: claude-code
+        cwd: "."
+        startup:
+          files:
+            - path: roles/moderator.md
+              delivery_hint: guidance_merge
+              required: true
+  - id: panel
+    label: Panel
+    members:
+      - id: participant-1
+        agent_ref: local:seat
+        profile: default
+        runtime: claude-code
+        cwd: "."
+        startup:
+          files:
+            - path: roles/participant.md
+              delivery_hint: guidance_merge
+              required: true
+      - id: participant-2
+        agent_ref: local:seat
+        profile: default
+        runtime: claude-code
+        cwd: "."
+        startup:
+          files:
+            - path: roles/participant.md
+              delivery_hint: guidance_merge
+              required: true
+      - id: participant-3
+        agent_ref: local:seat
+        profile: default
+        runtime: claude-code
+        cwd: "."
+        startup:
+          files:
+            - path: roles/participant.md
+              delivery_hint: guidance_merge
+              required: true

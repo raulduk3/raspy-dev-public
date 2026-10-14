@@ -1,0 +1,65 @@
+# rig up teams/review.yaml --cwd <your project>   (every seat works in that project)
+# runtime: pick the agent each seat runs (claude-code, codex, pi, ...).
+version: "0.2"
+name: review
+summary: "A lead, two independent reviewers (set them to different agents or tiers), two workers."
+pods:
+  - id: lead
+    label: Lead
+    members:
+      - id: lead
+        agent_ref: local:seat
+        profile: default
+        runtime: claude-code
+        cwd: "."
+        startup:
+          files:
+            - path: roles/lead.md
+              delivery_hint: guidance_merge
+              required: true
+  - id: review
+    label: Review
+    members:
+      - id: reviewer-a
+        agent_ref: local:seat
+        profile: default
+        runtime: claude-code
+        cwd: "."
+        startup:
+          files:
+            - path: roles/reviewer.md
+              delivery_hint: guidance_merge
+              required: true
+      - id: reviewer-b
+        agent_ref: local:seat
+        profile: default
+        runtime: claude-code
+        cwd: "."
+        startup:
+          files:
+            - path: roles/reviewer.md
+              delivery_hint: guidance_merge
+              required: true
+  - id: workers
+    label: Workers
+    members:
+      - id: worker-1
+        agent_ref: local:seat
+        profile: default
+        runtime: claude-code
+        cwd: "."
+        startup:
+          files:
+            - path: roles/worker.md
+              delivery_hint: guidance_merge
+              required: true
+      - id: worker-2
+        agent_ref: local:seat
+        profile: default
+        runtime: claude-code
+        cwd: "."
+        startup:
+          files:
+            - path: roles/worker.md
+              delivery_hint: guidance_merge
+              required: true
