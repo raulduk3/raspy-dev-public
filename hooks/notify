@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# notify: send one message to your phone through ntfy.
+#   notify "title" "message" [priority]     from a script or a failed unit
+#   notify < hook.json                      from an agent hook (needs-you, stop on error)
+# The topic is the only secret: NTFY_TOPIC, or the first line of ~/.config/notify/topic, or of
+# /etc/notify/topic. NTFY_SERVER defaults to https://ntfy.sh. No topic: does nothing.
+# The same title and message are sent at most once per 10 minutes.
+set -uo pipefail
+topic="${NTFY_TOPIC:-}"
+for file in "${XDG_CONFIG_HOME:-$HOME/.config}/notify/topic" /etc/notify/topic; do
+  [ -n "$topic" ] || { [ -r "$file" ] && topic="$(head -n 1 "$file")"; }
+done
+[ -n "$topic" ] || exit 0
+priority="${3:-default}"
+if [ $# -ge 1 ]; then
+  title="$1"; message="${2:-$1}"
+else
+  command -v jq >/dev/null || exit 0
+  input="$(cat)"
+  event="$(printf '%s' "$input" | jq -r '.hook_event_name // .type // "agent"' 2>/dev/null)"
+  message="$(printf '%s' "$input" | jq -r '.message // .error_message // .error // .reason // empty' 2>/dev/null)"
+  cwd="$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)"
+  title="$event in ${cwd##*/}"
+  message="${message:-$event}"
+  case "$event" in *[Ff]ail*|*[Ee]rror*) priority=high ;; esac
+fi
+host="$(hostname -s 2>/dev/null || hostname)"
+stamp="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/notify-$(id -u)-$(printf '%s' "$title$message" | cksum | cut -d' ' -f1)"
+[ -n "$(find "$stamp" -mmin -10 2>/dev/null)" ] && exit 0
+touch "$stamp" 2>/dev/null
+curl -fsS -m 15 -H "Title: $title" -H "Priority: $priority" -H "Tags: $host" \
+  -d "$message" "${NTFY_SERVER:-https://ntfy.sh}/$topic" >/dev/null 2>&1
+exit 0

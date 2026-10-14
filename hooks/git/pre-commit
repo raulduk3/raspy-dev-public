@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Global pre-commit (core.hooksPath): no secrets in a commit. Uses gitleaks when installed, and
+# a short pattern list otherwise, so it never passes for want of a scanner. Matches are reported
+# by file and line, never printed. Then runs the repository's own pre-commit hook, if any.
+set -euo pipefail
+if command -v gitleaks >/dev/null; then
+  gitleaks git --pre-commit --staged --redact --no-banner --log-level warn ||
+    { echo "pre-commit: gitleaks found a secret in the staged changes" >&2; exit 1; }
+else
+  patterns='-----BEGIN [A-Z ]*PRIVATE KEY-----|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{40,}|sk-[A-Za-z0-9_-]{32,}|xox[abprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{35}|(api[_-]?key|secret|token|passw(or)?d)["'\'']?[[:space:]]*[:=][[:space:]]*["'\''][^"'\'' ]{16,}'
+  hits="$(git diff --cached -U0 --no-color --no-ext-diff | awk '
+    /^\+\+\+ / { file = substr($0, 7); next } /^@@/ { split($3, a, ","); line = a[1] + 0; next }
+    /^\+/ { print file ":" line "\t" substr($0, 2); line++ }' | grep -E "	.*($patterns)" | cut -f1 || true)"
+  if [ -n "$hits" ]; then
+    printf 'pre-commit: possible secret at\n%s\n' "$hits" >&2; exit 1
+  fi
+fi
+own="$(git rev-parse --git-common-dir)/hooks/pre-commit"   # the repository's own, not this one
+[ ! -x "$own" ] || exec "$own" "$@"

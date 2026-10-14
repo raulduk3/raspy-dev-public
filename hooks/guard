@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# guard: refuse the commands an agent must never run. Any agent hook that runs before a shell
+# command calls it, with the hook's JSON on stdin or the command as `guard -c "<command>"`.
+# Exit 0 allows; exit 2 refuses with the reason on stderr. Fails closed: unreadable input or a
+# missing jq refuses. The git hooks in hooks/git hold the same line for people and editors.
+# Protected branches: GUARD_PROTECTED (default "main master").
+set -uo pipefail
+
+refuse() { printf 'guard: %s\n' "$1" >&2; exit 2; }
+
+cwd="$PWD"
+if [ "${1:-}" = -c ]; then
+  command="${2:-}"
+else
+  command -v jq >/dev/null || refuse "jq is missing; install it (setup/ does)"
+  input="$(cat)"
+  command="$(jq -er '(.tool_input | objects | .command) // (.input | objects | .command) // (.command | strings) // ""' <<<"$input" 2>/dev/null)" ||
+    refuse "unreadable hook input"
+  cwd="$(jq -r '.cwd // empty' <<<"$input" 2>/dev/null)"; cwd="${cwd:-$PWD}"
+fi
+[ -n "$command" ] || exit 0
+
+branches="$(printf '%s' "${GUARD_PROTECTED:-main master}" | tr -s ' ' '|')"
+# One line; separators spaced out; every word between single spaces; git's global options
+# (-C dir, -c key=value) removed. A match anywhere refuses, quoted text included: fail closed.
+flat=" $(printf '%s' "$command" | tr '\n\t' '  ' | sed -E 's/([;&|()])/ \1 /g' | tr -s ' ') "
+has() { printf '%s' "$flat" | grep -Eq -- "$1"; }
+args='[^;&|]*'   # the rest of one command
+
+# The escape hatches belong to people, at a terminal.
+has 'ALLOW_PROTECTED|--no-verify|core\.hooksPath' && refuse "skipping or changing git hooks is refused"
+dir="$(printf '%s' "$flat" | sed -nE 's/.* git -C ([^ ]+) .*/\1/p')"   # where a merge would land
+flat="$(printf '%s' "$flat" | sed -E 's/ git( (-C|-c|--git-dir|--work-tree) [^ ]+)+ / git /g')"
+has " git commit $args-n " && refuse "skipping git hooks is refused"
+
+if has ' git push '; then
+  has " git push $args( |:|refs/heads/)($branches) " &&
+    refuse "push to a protected branch is refused; push a task branch and open a pull request"
+  has " git push $args(--force|-f|--force-with-lease[^ ]*|--mirror|--delete|-d|\+[^ ]+) " &&
+    refuse "force push, mirror and branch deletion are refused"
+  has " git push( [^-;&|][^ ]*)? ([;&|]|$)" &&
+    refuse "bare git push is refused; name the branch: git push -u origin <type/slug>"
+fi
+has ' git (rebase|filter-branch|filter-repo|replace) ' && refuse "history rewrite is refused"
+has " git reset $args--hard " && refuse "git reset --hard is refused; commit or stash first"
+has " git commit $args--amend " && refuse "git commit --amend is refused; make a new commit"
+has " git (checkout|switch) ($branches) [;&|]( [;&|])? git merge " && refuse "merging into a protected branch is a person's"
+if has ' git (merge|pull|cherry-pick|revert) '; then
+  case " ${GUARD_PROTECTED:-main master} " in *" $(git -C "${dir:-$cwd}" branch --show-current 2>/dev/null) "*)
+    refuse "this checkout is on a protected branch; work on a task branch" ;;
+  esac
+fi
+has " gh pr (merge|ready) | gh pr review $args--approve " && refuse "merging, readying and approving pull requests are a person's"
+has " gh api $args/merges? " && refuse "merging through the API is a person's"
+has " git (worktree add|clone) $args/(tmp|dev/shm)/" && refuse "no worktree or clone in /tmp; put it beside the repository"
+exit 0
