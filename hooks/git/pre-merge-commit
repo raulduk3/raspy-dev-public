@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Global pre-merge-commit (core.hooksPath): no merge commit onto a protected branch unless a
+# person says so with `ALLOW_PROTECTED=1 git merge ...`. Then the repository's own hook, if any.
+set -euo pipefail
+branch="$(git branch --show-current)"
+case " ${GUARD_PROTECTED:-main master} " in *" $branch "*)
+  [ "${ALLOW_PROTECTED:-0}" = 1 ] || { echo "pre-merge-commit: $branch is protected; a person lands it with ALLOW_PROTECTED=1 git merge ..." >&2; exit 1; } ;;
+esac
+own="$(git rev-parse --git-common-dir)/hooks/pre-merge-commit"   # the repository's own, not this one
+[ ! -x "$own" ] || exec "$own" "$@"

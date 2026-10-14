@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Global pre-push (core.hooksPath): no push to a protected branch and no force push, for every
+# agent, editor and person. A person who must push a protected branch runs
+# `ALLOW_PROTECTED=1 git push ...` at a terminal; the agent guard refuses that variable.
+# Then runs the repository's own pre-push hook, if it has one.
+set -euo pipefail
+input="$(cat)"
+protected=" ${GUARD_PROTECTED:-main master} "
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ -n "${local_ref:-}" ] && [ "${ALLOW_PROTECTED:-0}" != 1 ] || continue
+  branch="${remote_ref#refs/heads/}"
+  case "$protected" in *" $branch "*)
+    echo "pre-push: $branch is protected; push a task branch and open a pull request" >&2; exit 1 ;;
+  esac
+  [ -n "${local_sha//0/}" ] && [ -n "${remote_sha//0/}" ] || continue   # new branch or deletion
+  git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null || {
+    echo "pre-push: $branch would be rewritten (or fetch first); make new commits instead" >&2; exit 1; }
+done <<<"$input"
+own="$(git rev-parse --git-common-dir)/hooks/pre-push"   # the repository's own, not this one
+[ ! -x "$own" ] || printf '%s\n' "$input" | "$own" "$@"

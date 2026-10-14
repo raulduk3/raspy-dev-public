@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# check-before-stop: when an agent stops inside a repository whose tree has changed, run the
+# repository's own check. Exit 2 with the failure on stderr keeps the agent working on it; it
+# never edits anything. Reads the hook JSON on stdin when there is one (cwd, stop_hook_active).
+# The check is the first executable of ./check, bin/check, scripts/check.
+set -uo pipefail
+input=""; [ -t 0 ] || input="$(cat 2>/dev/null || true)"
+if [ -n "$input" ] && command -v jq >/dev/null; then
+  # A stop that follows this hook's own refusal is let through, or a red check blocks forever.
+  [ "$(printf '%s' "$input" | jq -r '.stop_hook_active // false' 2>/dev/null)" = true ] && exit 0
+  cwd="$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)"
+  [ -z "$cwd" ] || cd "$cwd" 2>/dev/null || true
+fi
+root="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+cd "$root" || exit 0
+check=""
+for candidate in ./check bin/check scripts/check; do
+  [ -x "$candidate" ] && { check="$candidate"; break; }
+done
+[ -n "$check" ] || exit 0
+[ -n "$(git status --porcelain)" ] || [ -n "$(git log --oneline '@{upstream}..HEAD' 2>/dev/null)" ] || exit 0
+if out="$("$check" 2>&1)"; then
+  printf 'check passed in %s\n' "$root"
+  exit 0
+fi
+reason="$(printf 'check FAILED in %s; fix it before stopping. Last lines:\n%s' "$root" "$(printf '%s\n' "$out" | tail -n 30)")"
+printf '%s\n' "$reason" >&2
+# Agents that read a decision from stdout get one too; those that read the exit code get 2.
+command -v jq >/dev/null && jq -cn --arg r "$reason" '{decision: "block", reason: $r}'
+exit 2
