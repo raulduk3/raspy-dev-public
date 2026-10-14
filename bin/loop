@@ -1,0 +1,170 @@
+#!/usr/bin/env bash
+# loop: work toward one goal on one branch, inside the repository you run it from.
+#   loop start <type/slug>        cut the goal branch from main into worktrees/<type-slug>
+#   loop tasks list|next|check    the task files in docs/tasks/
+#   loop tasks new "<title>" --scope a/,b/ [--depends "#1, #2"] [--label spec]
+#   loop go [N ...]               give each ready task (or N ...) a branch and a worktree cut from
+#                                 the goal branch; with LOOP_AGENT set, start a worker in each
+#   loop status                   goal, workers, merged-up tasks
+#   loop fold N                   check task N's branch and merge it up into the goal branch
+#   loop land                     move done tasks, then push the goal branch and open one pull
+#                                 request (GitHub) or print the merge for a person (local)
+# LOOP_AGENT is any headless agent command that takes the prompt as its last argument, for
+# example the one-shot command of your agent with its edit-in-this-folder permission flag.
+# Nothing here pushes main, merges into it, approves or rewrites history.
+set -euo pipefail
+die() { echo "loop: $*" >&2; exit 1; }
+top="$(git rev-parse --show-toplevel 2>/dev/null)" || die "run it inside a repository"
+main="$(git -C "$top" worktree list --porcelain | sed -n '1s/^worktree //p')"
+state="$(git -C "$top" rev-parse --git-common-dir)/loop"
+case "$state" in /*) ;; *) state="$top/$state" ;; esac
+mkdir -p "$state"
+base="${LOOP_BASE:-main}"
+goal() { cat "$state/goal" 2>/dev/null || die "no goal; loop start <type/slug>"; }
+goal_tree() { echo "$main/worktrees/$(goal | tr / -)"; }
+field() { sed -n "s/^$2: *//p" "$1" | head -n 1; }
+tasks_dir() { if [ -f "$state/goal" ]; then echo "$(goal_tree)/docs/tasks"; else echo "$main/docs/tasks"; fi; }
+worker_tree() { echo "$main/worktrees/task-$1"; }
+folded() { grep -q "^$1 " "$state/folded" 2>/dev/null; }
+running() { [ -f "$state/$1.pid" ] && ps -o stat= -p "$(cat "$state/$1.pid")" 2>/dev/null | grep -qv '^Z'; }
+
+tasks() {
+  local dir; dir="$(tasks_dir)"; [ -d "$dir" ] || dir="$main/docs/tasks"
+  case "${1:-list}" in
+    list) for f in "$dir"/[0-9]*.md; do [ -e "$f" ] || continue
+            printf '%-5s %-7s %s\n' "$(basename "$f" | cut -d- -f1)" "$(field "$f" Status)" "$(head -n 1 "$f" | sed 's/^# //')"; done ;;
+    next) ls "$dir" "$dir/done" 2>/dev/null | sed -n 's/^\([0-9][0-9]*\)-.*/\1/p' | sort -n | tail -n 1 | awk '{print $1+1} END {if (!NR) print 1}' ;;
+    check) local bad=0
+      for f in "$dir"/[0-9]*.md; do [ -e "$f" ] || continue
+        for key in Status Scope "Depends on"; do
+          [ -n "$(field "$f" "$key")" ] || { echo "$(basename "$f"): no $key:"; bad=1; }
+        done
+      done; return $bad ;;
+    new) shift; local title="${1:?title}" scope="" depends=none label=""; shift
+      while [ $# -gt 0 ]; do case "$1" in
+        --scope) scope="$2"; shift 2 ;; --depends) depends="$2"; shift 2 ;; --label) label="$2"; shift 2 ;;
+        *) die "unknown option $1" ;; esac; done
+      [ -n "$scope" ] || die "--scope is required"
+      local n slug; n="$(tasks next)"; slug="$(echo "$title" | tr 'A-Z' 'a-z' | tr -cs 'a-z0-9' - | sed 's/^-//;s/-$//' | cut -c1-40)"
+      mkdir -p "$dir"
+      printf '# %s\n\nStatus: ready\n%sScope: %s\nDepends on: %s\n\nWhat to build and how to tell it is done.\n' \
+        "$title" "${label:+Labels: $label
+}" "$scope" "$depends" > "$dir/$n-$slug.md"
+      echo "$dir/$n-$slug.md" ;;
+    *) die "tasks list|next|check|new" ;;
+  esac
+}
+
+ready() {   # numbers of ready tasks whose dependencies are folded or done, not yet started
+  local dir; dir="$(tasks_dir)"
+  for f in "$dir"/[0-9]*.md; do [ -e "$f" ] || continue
+    local n; n="$(basename "$f" | cut -d- -f1)"
+    [ "$(field "$f" Status)" = ready ] || continue
+    folded "$n" || [ -d "$(worker_tree "$n")" ] && continue
+    local ok=1
+    for d in $(field "$f" "Depends on" | tr -dc '0-9 ,' | tr , ' '); do
+      folded "$d" || ls "$dir/done/$d"-*.md >/dev/null 2>&1 || ok=0
+    done
+    if [ $ok = 1 ]; then echo "$n"; fi
+  done
+}
+
+prompt() {
+  cat <<EOF
+You are the worker for task $1 in this worktree, on branch $2. Read AGENTS.md, then
+$(basename "$3") in docs/tasks/ and the specification sections it cites. Change only the paths in
+its Scope. Commit as you go, with type(scope): summary messages. Run the repository's check until
+it passes. Then write .worker-done.md: what changed, how you verified it, and "Closes #$1".
+If the task is wrong, already done or needs paths outside its scope, write .worker-blocked.md
+saying why, and stop. Never push, open a pull request, merge, or touch another worktree.
+EOF
+}
+
+go() {
+  local g gt; g="$(goal)"; gt="$(goal_tree)"
+  local list; list="${*:-$(ready)}"
+  [ -n "$list" ] || { echo "loop: no ready task"; return; }
+  for n in $list; do
+    local f type=fix branch wt; f="$(ls "$gt/docs/tasks/$n"-*.md 2>/dev/null | head -n 1)"
+    [ -n "$f" ] || die "no task $n on $g"
+    field "$f" Labels | grep -qE 'enhancement|spec' && type=feat
+    branch="$type/$(basename "$f" .md | cut -d- -f2-)-$n"; wt="$(worker_tree "$n")"
+    [ -d "$wt" ] || git -C "$main" worktree add -q -b "$branch" "$wt" "$g"
+    if [ -n "${LOOP_AGENT:-}" ]; then
+      (cd "$wt" && exec $LOOP_AGENT "$(prompt "$n" "$branch" "$f")") > "$state/$n.log" 2>&1 &
+      echo $! > "$state/$n.pid"
+      echo "loop: task $n started in $wt (log $state/$n.log)"
+    else
+      echo "loop: task $n ready in $wt on $branch; open an agent there"
+      prompt "$n" "$branch" "$f" > "$wt/.worker-task.md"
+    fi
+  done
+}
+
+status() {
+  echo "goal: $(goal) in $(goal_tree)"
+  for wt in "$main"/worktrees/task-*; do [ -d "$wt" ] || continue
+    local n s=working; n="${wt##*-}"
+    [ -f "$wt/.worker-done.md" ] && s="done"
+    [ -f "$wt/.worker-blocked.md" ] && s=blocked
+    running "$n" && s=running
+    printf 'task %-4s %-8s %s\n' "$n" "$s" "$(git -C "$wt" branch --show-current)"
+  done
+  [ ! -s "$state/folded" ] || sed 's/^/merged up: task /' "$state/folded"
+}
+
+fold() {
+  local n="${1:?task number}" wt branch; wt="$(worker_tree "$n")"
+  [ -d "$wt" ] || die "task $n has no worktree"
+  running "$n" && die "task $n is still running"
+  [ ! -f "$wt/.worker-blocked.md" ] || die "task $n is blocked: $(head -n 3 "$wt/.worker-blocked.md")"
+  [ -z "$(git -C "$wt" status --porcelain --untracked-files=no)" ] || die "task $n has uncommitted changes"
+  branch="$(git -C "$wt" branch --show-current)"
+  for c in ./check bin/check scripts/check; do
+    if [ -x "$wt/$c" ]; then (cd "$wt" && "$c") > "$state/$n.check" 2>&1 || die "check failed on $branch; see $state/$n.check"; break; fi
+  done
+  git -C "$(goal_tree)" merge -q --no-ff -m "merge: task $n ($branch)" "$branch" || die "conflict merging $branch; resolve it in $(goal_tree)"
+  echo "$n $branch $(git -C "$(goal_tree)" rev-parse --short HEAD)" >> "$state/folded"
+  git -C "$main" worktree remove --force "$wt" && git -C "$main" branch -q -D "$branch"
+  rm -f "$state/$n.pid"
+  echo "loop: task $n merged up into $(goal)"
+}
+
+land() {
+  local g gt; g="$(goal)"; gt="$(goal_tree)"
+  [ -s "$state/folded" ] || die "nothing merged up yet"
+  mkdir -p "$gt/docs/tasks/done"
+  for n in $(cut -d' ' -f1 "$state/folded"); do
+    for f in "$gt/docs/tasks/$n"-*.md; do [ -e "$f" ] && git -C "$gt" mv "$f" docs/tasks/done/; done
+  done
+  git -C "$gt" diff --cached --quiet || git -C "$gt" commit -q -m "docs(tasks): mark done the tasks this goal carries"
+  local closes; closes="$(cut -d' ' -f1 "$state/folded" | sed 's/^/Closes #/')"
+  if git -C "$gt" remote get-url origin 2>/dev/null | grep -q github.com; then
+    git -C "$gt" push -q -u origin "$g"
+    (cd "$gt" && gh pr create --base "$base" --head "$g" --title "$(echo "$g" | sed 's|/|: |;s|-| |g')" --body "$closes")
+    echo "loop: review and merge the pull request; then: loop finish"
+  else
+    echo "loop: review with: git -C $main diff $base...$g"
+    echo "loop: a person lands it with: ALLOW_PROTECTED=1 git -C $main merge --no-ff $g"
+  fi
+}
+
+finish() {   # after a person landed the goal: remove its worktree and state
+  local g; g="$(goal)"
+  git -C "$main" merge-base --is-ancestor "$g" "$base" || die "$g is not on $base yet"
+  git -C "$main" worktree remove "$(goal_tree)" && git -C "$main" branch -q -d "$g"
+  rm -rf "$state"; echo "loop: $g finished"
+}
+
+case "${1:-}" in
+  start) b="${2:?type/slug}"; [ ! -f "$state/goal" ] || die "goal $(goal) is open"
+         echo "$b" > "$state/goal"; git -C "$main" worktree add -q -b "$b" "$(goal_tree)" "$base"
+         echo "loop: goal $b in $(goal_tree)" ;;
+  tasks) shift; tasks "$@" ;;
+  go) shift; go "$@" ;;
+  status) status ;;
+  fold) shift; for n in "$@"; do fold "$n"; done ;;
+  land) land ;;
+  finish) finish ;;
+  *) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac

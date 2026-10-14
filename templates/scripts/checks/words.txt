@@ -1,0 +1,10 @@
+# Words a commit message or an added source line must not carry: tool and model names, so the
+# history describes the software, not what produced it. One per line, case-insensitive.
+anthropic
+claude
+openai
+codex
+chatgpt
+gpt-
+gemini
+copilot
