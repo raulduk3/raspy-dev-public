@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# new-repo <directory> [--github <owner>/<name> [--public]]
+# Start a repository from templates/: instructions, policy, empty specification, task folder,
+# the check and its hygiene rules. Commits on main. Every agent's instruction file is a link to
+# AGENTS.md (the names come from contexts/*/instruction-files). With --github it also creates
+# the GitHub repository (private unless --public), pushes main and protects it with
+# github/ruleset-main.json. Without it nothing leaves the machine.
+set -euo pipefail
+here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+usage() { sed -n '2,8p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+
+directory="" github="" visibility=--private
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --github) github="${2:?--github needs owner/name}"; shift 2 ;;
+    --public) visibility=--public; shift ;;
+    -h|--help) usage ;;
+    -*) echo "new-repo: unknown option $1" >&2; usage ;;
+    *) [ -z "$directory" ] || usage; directory="$1"; shift ;;
+  esac
+done
+[ -n "$directory" ] || usage
+if [ -n "$(ls -A "$directory" 2>/dev/null)" ]; then
+  echo "new-repo: $directory exists and is not empty" >&2; exit 2
+fi
+mkdir -p "$directory"
+cp -R "$here/templates/." "$directory/"
+cd "$directory"
+name="$(basename "$PWD")"
+owner="${github%%/*}"
+[ -n "$owner" ] || owner="$(gh api user --jq .login 2>/dev/null || echo OWNER)"
+sed "s/@OWNER/@$owner/" .github/CODEOWNERS > .github/CODEOWNERS.new && mv .github/CODEOWNERS.new .github/CODEOWNERS
+cat "$here"/contexts/*/instruction-files 2>/dev/null | grep -v '^#' | sort -u | while read -r file; do
+  [ -n "$file" ] && [ ! -e "$file" ] && ln -s AGENTS.md "$file"
+done
+printf '.DS_Store\n.env\n.env.*\n!.env.example\n*.log\nworktrees/\n.worker-*\n' > .gitignore
+printf '# %s\n\nWhat this repository is and how to use it.\n\n- Check: `scripts/check`\n- Instructions: [AGENTS.md](AGENTS.md); policy: [CONTRIBUTING.md](CONTRIBUTING.md)\n' "$name" > README.md
+
+git init -q -b main
+git add -A
+git commit -q -m "chore(repo): start from the template"
+scripts/check >/dev/null
+echo "new-repo: $PWD on main; check passes"
+
+if [ -n "$github" ]; then
+  gh repo create "$github" "$visibility" --source=. --remote=origin >/dev/null
+  ALLOW_PROTECTED=1 git push -q -u origin main
+  gh api -X PATCH "repos/$github" -F delete_branch_on_merge=true >/dev/null
+  if gh api -X POST "repos/$github/rulesets" --input github/ruleset-main.json >/dev/null 2>&1; then
+    echo "new-repo: main is protected"
+  else
+    echo "new-repo: ruleset NOT applied (private repositories need a paid plan); later: gh api -X POST repos/$github/rulesets --input github/ruleset-main.json" >&2
+  fi
+  echo "new-repo: https://github.com/$github"
+fi

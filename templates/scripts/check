@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+# The repository's check: commit and source hygiene, then the project's own checks in
+# scripts/check-local once it has a language and a build. CI and agents run this same command.
+set -eu
+root="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
+python3 "$root/scripts/checks/hygiene.py" "$root"
+if [ -x "$root/scripts/check-local" ]; then "$root/scripts/check-local"; fi
