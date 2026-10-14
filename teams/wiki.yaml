@@ -1,0 +1,55 @@
+# rig up teams/wiki.yaml --cwd <your project>   (every seat works in that project)
+# runtime: pick the agent each seat runs (claude-code, codex, pi, ...).
+version: "0.2"
+name: wiki
+summary: "A lead assigning pages, two writers, and a reviewer checking each page against the code."
+pods:
+  - id: lead
+    label: Lead
+    members:
+      - id: lead
+        agent_ref: local:seat
+        profile: default
+        runtime: claude-code
+        cwd: "."
+        startup:
+          files:
+            - path: roles/lead.md
+              delivery_hint: guidance_merge
+              required: true
+  - id: writers
+    label: Writers
+    members:
+      - id: writer-1
+        agent_ref: local:seat
+        profile: default
+        runtime: claude-code
+        cwd: "."
+        startup:
+          files:
+            - path: roles/writer.md
+              delivery_hint: guidance_merge
+              required: true
+      - id: writer-2
+        agent_ref: local:seat
+        profile: default
+        runtime: claude-code
+        cwd: "."
+        startup:
+          files:
+            - path: roles/writer.md
+              delivery_hint: guidance_merge
+              required: true
+  - id: review
+    label: Review
+    members:
+      - id: reviewer
+        agent_ref: local:seat
+        profile: default
+        runtime: claude-code
+        cwd: "."
+        startup:
+          files:
+            - path: roles/reviewer.md
+              delivery_hint: guidance_merge
+              required: true

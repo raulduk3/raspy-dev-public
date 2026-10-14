@@ -1,0 +1,10 @@
+# One generic seat. Its role comes from the team file (startup.files: roles/<role>.md); its
+# rules and skills come from the machine's AGENTS.md and skills, like any other session.
+name: seat
+version: "1.0"
+description: A team seat that reads its role from roles/.
+profiles:
+  default:
+    uses:
+      skills: []
+      guidance: []

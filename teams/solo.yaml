@@ -1,0 +1,32 @@
+# rig up teams/solo.yaml --cwd <your project>   (every seat works in that project)
+# runtime: pick the agent each seat runs (claude-code, codex, pi, ...).
+version: "0.2"
+name: solo
+summary: "A lead and one worker; the check is the review. For small goals."
+pods:
+  - id: lead
+    label: Lead
+    members:
+      - id: lead
+        agent_ref: local:seat
+        profile: default
+        runtime: claude-code
+        cwd: "."
+        startup:
+          files:
+            - path: roles/lead.md
+              delivery_hint: guidance_merge
+              required: true
+  - id: workers
+    label: Workers
+    members:
+      - id: worker-1
+        agent_ref: local:seat
+        profile: default
+        runtime: claude-code
+        cwd: "."
+        startup:
+          files:
+            - path: roles/worker.md
+              delivery_hint: guidance_merge
+              required: true
