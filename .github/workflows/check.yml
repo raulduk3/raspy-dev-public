@@ -2,10 +2,14 @@ name: check
 on:
   push:
   pull_request:
+permissions:
+  contents: read
 jobs:
   check:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: python3 -m pip install --break-system-packages pyyaml
-      - run: ./bin/check
+        with:
+          fetch-depth: 0
+      - run: sudo apt-get install -y -qq jq shellcheck
+      - run: ./check
