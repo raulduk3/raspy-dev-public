@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# ./check: this repository's own test. Exit 0 only when every part passes.
+#   scripts parse; skills are valid Agent Skills; JSON parses; the tests pass; no file outside
+#   contexts/ names a model, vendor or agent; nothing private (patterns below, gitleaks when
+#   installed, and your own deny-list in ~/.config/raspy-public/denylist.txt when present);
+#   commits carry no attribution; scripts stay under 1,500 lines.
+set -uo pipefail
+cd "$(dirname "$(readlink -f "$0")")" || exit 2
+fail=0
+tmp="$(mktemp)"; trap 'rm -f "$tmp"' EXIT
+bad() { echo "check: $*" >&2; fail=1; }
+files() { git ls-files --cached --others --exclude-standard | while read -r f; do [ -f "$f" ] && [ ! -L "$f" ] && echo "$f"; done; }
+
+# Scripts parse; shellcheck too when installed.
+scripts="$(files | while read -r f; do head -n 1 "$f" | grep -qE '^#!.*\b(ba)?sh' && echo "$f"; done; [ ! -e setup/common.sh ] || echo setup/common.sh)"
+for f in $scripts; do bash -n "$f" || bad "$f does not parse"; done
+if command -v shellcheck >/dev/null; then shellcheck -S warning $scripts || bad "shellcheck"; fi
+
+# Skills: SKILL.md with name = folder and a description of 1 to 1024 characters.
+for dir in skills/*/; do
+  [ -d "$dir" ] || continue
+  name="$(basename "$dir")"; skill="$dir/SKILL.md"
+  [ -f "$skill" ] || { bad "$dir has no SKILL.md"; continue; }
+  [ "$(sed -n 1p "$skill")" = --- ] || bad "$skill: no frontmatter"
+  [ "$(sed -n 's/^name: *//p' "$skill" | head -n 1)" = "$name" ] || bad "$skill: name is not $name"
+  length="$(awk '/^---$/ {n++; next} n != 1 {next} /^description:/ {d = 1; s = $0; next}
+    /^[a-z-]+:/ {d = 0} d {s = s $0} END {print length(s)}' "$skill")"
+  [ "$length" -gt 13 ] && [ "$length" -le 1040 ] || bad "$skill: description missing or too long"
+done
+
+for f in $(files | grep '\.json$'); do jq empty "$f" 2>/dev/null || bad "$f is not JSON"; done
+if command -v rig >/dev/null; then
+  for f in teams/*.yaml; do [ -e "$f" ] || continue; rig spec validate "$f" >/dev/null 2>&1 || bad "$f: rig spec validate failed"; done
+fi
+for t in tests/*.sh; do [ ! -e "$t" ] || bash "$t" || bad "$t failed"; done
+
+# Agnostic: no model, vendor or agent outside contexts/. Allowed elsewhere: setup/ (it installs
+# them), README between the agents:begin and agents:end markers, team files' runtime lines,
+# NOTICE, and the word lists themselves.
+words='anthropic|claude|openai|codex|chatgpt|gpt-?[0-9]|gemini|copilot|opus|sonnet|haiku|llama|mistral|deepseek|qwen|openrouter|ollama|grok'
+case_words='\bCursor\b|\bPi\b'
+files | grep -vE '^(contexts/|setup/|check$|NOTICE$|templates/scripts/checks/words\.txt$)' | while read -r f; do
+  lines="$(awk '/agents:begin/ {skip = 1} /agents:end/ {skip = 0; next} !skip {print FILENAME ":" FNR ":" $0}' "$f" |
+    grep -vE '^teams/[^:]+:[0-9]+: *#? *runtime:')"
+  { grep -iE "$words" <<<"$lines"; grep -E "$case_words" <<<"$lines"; } | cut -d: -f1,2 | sed 's/$/: names a model, vendor or agent/'
+done | sort -u > "$tmp"
+[ ! -s "$tmp" ] || { cat "$tmp" >&2; bad "agnostic check"; }
+
+# Privacy: matches are reported by file and line, never printed.
+private='[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.(com|net|org|io|info|dev|me|co)\b|/home/[a-z_][a-z0-9_-]*/|/Users/[A-Za-z][A-Za-z0-9_-]*/|\b([0-9]{1,3}\.){3}[0-9]{1,3}\b|[a-z0-9-]+\.ts\.net|ngrok-free|privaterelay|SHA256:[A-Za-z0-9+/]{20,}|\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b'
+hits="$(files | grep -v '^check$' | xargs grep -nIoE "$private" 2>/dev/null |
+  grep -vE ':(127\.0\.0\.1|0\.0\.0\.0|[^:]*@example\.(com|org|invalid))$' | cut -d: -f1,2)"
+[ -z "$hits" ] || { printf '%s: private-looking text\n' $hits >&2; bad "privacy patterns"; }
+denylist="$HOME/.config/raspy-public/denylist.txt"
+if [ -r "$denylist" ]; then
+  terms="$(grep -vE '^(#|$)' "$denylist")"
+  hits="$( [ -z "$terms" ] || files | xargs grep -nIiF -f <(printf '%s\n' "$terms") 2>/dev/null | cut -d: -f1,2)"
+  [ -z "$hits" ] || { printf '%s: deny-listed term\n' $hits >&2; bad "deny-list"; }
+  hits="$( [ -z "$terms" ] || git log --format='%H %an %ae %B' origin/main..HEAD 2>/dev/null | grep -ciF -f <(printf '%s\n' "$terms"))"
+  [ "${hits:-0}" = 0 ] || bad "deny-listed term in $hits commit line(s) since origin/main"
+else
+  echo "check: no deny-list at $denylist; skipped" >&2
+fi
+if command -v gitleaks >/dev/null; then gitleaks dir . --redact --no-banner --log-level error || bad "gitleaks"; fi
+
+# Commits since main carry no attribution.
+if git log --format=%B origin/main..HEAD 2>/dev/null | grep -qiE '^co-authored-by:|generated with'; then
+  bad "a commit since origin/main carries an attribution trailer or generated-with line"
+fi
+
+# Scripts stay small: shell, Python and TypeScript, tests included.
+total="$( { echo "$scripts"; files | grep -E '\.(py|ts)$'; } | sort -u | xargs cat | wc -l | tr -d ' ')"
+[ "$total" -lt 1500 ] || bad "scripts total $total lines (limit 1500)"
+
+[ $fail = 0 ] && echo "check: passed ($total script lines)"
+exit $fail
