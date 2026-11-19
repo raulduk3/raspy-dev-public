@@ -1,0 +1,10 @@
+[Unit]
+Description=Run dev-loop tidy once a day
+
+[Timer]
+OnCalendar=*-*-* 04:30
+Persistent=true
+RandomizedDelaySec=15m
+
+[Install]
+WantedBy=timers.target

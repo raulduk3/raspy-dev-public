@@ -10,7 +10,7 @@ Read the active transcript at <ABSOLUTE_PATH> (or use the digest below if no pat
 
 Scan for:
 - Decisions that worked but for the wrong reasons, or that survived only because the test path was lucky
-- Verifications that were skipped, deferred, or self-declared instead of artifact-checked
+- Verifications that were skipped, deferred, or self-reported instead of artifact-checked
 - Cases where the agent solved the local problem and missed the second-order effect (callers, sibling consumers, downstream telemetry)
 - Architectural smells the immediate fix papers over
 - Skills that should have been invoked but weren't, or were invoked too late
@@ -20,9 +20,9 @@ Scan for:
 
 Findings must point to skills, tools, or MCPs invoked in this transcript. Speculative routings to skills the parent never opened do not count. To check whether a skill was used, scan the transcript for:
 
-- File reads of any `SKILL.md` file (in the project's skills folder, the user's skills folder, or an installed plugin)
-- Subagent prompts that name a skill path
-- Tool calls (shell, search, MCP, etc.) that match a skill's documented commands
+- `Read` tool calls against any `SKILL.md` file (workspace `.cursor/skills/`, user-level `~/.cursor/skills/`, or plugin-installed paths under `~/.cursor/plugins/`)
+- `Task` prompts that name a skill path
+- Tool calls (Shell, Grep, MCP, etc.) that match a skill's documented commands
 
 Two valid finding shapes:
 

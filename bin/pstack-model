@@ -1,0 +1,230 @@
+#!/usr/bin/env python3
+"""Resolve a pstack role or model slug to a concrete model and effort for one runtime.
+
+  pstack-model resolve <role-or-slug> [--runtime any|claude|codex|pi|openrouter] [--all] [--no-inherit]
+  pstack-model show          every tier and role line in force, and the file it came from
+  pstack-model source <role> the file that sets this line, or `default`
+  pstack-model defaults      print the default model file (tiers, then roles)
+
+Skills name models by tier, never by product: `<tier>[.<n>][-<effort>]`, for example
+`judgment-max`, `judgment.2-max`, `implementation-xhigh`, `mechanical`. A `tier` line in the
+model file lists that tier's families in order; `.n` picks the nth family the runtime can run
+(panels use it for a second family), and the effort is the last hyphen token on the ladder
+max > xhigh > high > medium > low.
+A concrete slug (`fable-max`, `codex:gpt-5.6-sol-high`) passes through, and `inherit-parent` or
+`auto` means the parent chat's model.
+
+One file for every user and harness: /etc/dev-platform/pstack-models.md, installed by dev-server's
+bootstrap from that repository (edit it there). A user's ~/.config/dev-platform/pstack-models.md
+is a personal override, line by line; DEFAULTS below fill whatever neither names. Environment:
+DEV_PLATFORM_PSTACK_MODELS replaces the user file's path, DEV_PLATFORM_PSTACK_SYSTEM the system
+file's (tests). A line that is not `key: value` is reported on stderr and ignored.
+
+Families: `openrouter:<maker>/<model>` is a model OpenRouter serves, run by Pi with the
+OpenRouter API key; `codex:<model>` is Codex on the OpenAI subscription; `pi:<provider>/<model>`
+is any other Pi provider; a bare name is a Claude Code model. OpenRouter is the centre of the
+ecosystem (owner, 2026-10-12): every tier lists its OpenRouter families first and the Claude and
+Codex subscriptions last, as the fallbacks for the clients that can only run those.
+
+Output is one `<model>\t<effort>` line per entry (`inherit\t` for the aliases, empty effort when
+the slug has none). Without --all, only the first entry the runtime can run. `claude` runs only
+bare Claude families, `codex` only `codex:` ones (prefix dropped). `pi` runs `openrouter:`
+families (as `openrouter/<maker>/<model>`), `pi:` names, and the OpenAI subscription (`codex:X`
+becomes `openai-codex/X`); never a bare Claude family, because a Claude plan login belongs to
+Claude's own apps (Anthropic's terms). `openrouter` is the API
+rig's runtime: Pi on the OpenRouter key and nothing else, never a subscription. Exit 1 when
+nothing resolves.
+"""
+import os
+from pathlib import Path
+import sys
+
+EFFORTS = ('max', 'xhigh', 'high', 'medium', 'low')
+ALIASES = ('inherit-parent', 'auto')
+PANEL = 'judgment-max, judgment.2-max, implementation-xhigh'
+DEFAULTS = f"""\
+# pstack model configuration. Tier lines map each tier to its model families, in order;
+# role lines name a tier slug `<tier>[.<n>]-<effort>` or a concrete model. Delete a line to fall
+# back to the default. `inherit-parent` or `auto`: the role runs on the parent chat model.
+# OpenRouter first in every tier; the Claude and Codex subscriptions last (owner, 2026-10-12).
+# budget: unlimited (max)
+tier judgment: openrouter:anthropic/claude-fable-5.1, openrouter:openai/gpt-6-astra-pro, claude-opus-5-5, codex:gpt-6.1-sol, claude-fable-5-1
+tier implementation: openrouter:deepseek/deepseek-v4-pro-0813, openrouter:deepseek/deepseek-v4.1-flash, codex:gpt-6.1-sol, claude-opus-5-5
+tier mechanical: openrouter:deepseek/deepseek-v4.1-flash, openrouter:deepseek/deepseek-v4-flash, claude-haiku-4-5, codex:gpt-6-luna
+tier overseer: openrouter:anthropic/claude-fable-5.1, openrouter:openai/gpt-6-astra-pro, codex:gpt-6.1-sol, claude-fable-5-1
+feature, refactoring: implementation-xhigh
+bug-fix: implementation-xhigh
+perf-issue: implementation-xhigh
+hillclimb: implementation-xhigh
+judgment and prose: judgment-max
+hardest tasks: judgment-max
+how explorer: implementation-xhigh
+how explainer: judgment-max
+why investigators: implementation-xhigh
+why synthesizer: judgment-max
+reflect tooling: judgment.2-max
+reflect judgment, divergent, synthesizer: judgment-max
+arena runners: {PANEL}
+arena cross-judge pool: {PANEL}
+swarm workers: implementation-xhigh
+architect runners: {PANEL}
+interrogate reviewers: {PANEL}
+advice: judgment-max
+rig control: implementation-high
+rig overseer: overseer-max
+rig second overseer: overseer.2-max
+rig worker: implementation-high
+rig worker retry: openrouter:anthropic/claude-opus-5.5-high
+assistant start: codex:gpt-6.1-sol
+ops start: codex:gpt-6-luna
+engineer start: codex:gpt-6-sol
+"""
+SYSTEM = '/etc/dev-platform/pstack-models.md'
+RUNTIMES = ('any', 'claude', 'codex', 'pi', 'openrouter')
+
+
+def parse(text, origin=None):
+    """Tier and role lines; with `origin`, a line that is not `key: value` is reported."""
+    tiers, roles = {}, {}
+    for n, raw in enumerate(text.splitlines(), 1):
+        line = raw.strip()
+        if not line or line.startswith('#'):
+            continue
+        key, sep, value = line.partition(': ')
+        values = [v.strip() for v in value.split(',') if v.strip()]
+        if not sep or not key.strip() or not values or (key.startswith('tier ') and not key[5:].strip()):
+            if origin:
+                print(f'pstack-model: {origin}:{n}: not a `key: value` line, ignored', file=sys.stderr)
+            continue
+        if key.startswith('tier '):
+            tiers[key[5:].strip()] = values
+        else:
+            roles[key.strip()] = values
+    return tiers, roles
+
+
+def files():
+    """The files in force, lowest first: the system file, then the user's override."""
+    user = os.environ.get('DEV_PLATFORM_PSTACK_MODELS', str(Path.home() / '.config/dev-platform/pstack-models.md'))
+    return [Path(os.environ.get('DEV_PLATFORM_PSTACK_SYSTEM', SYSTEM)), Path(user)]
+
+
+def load(sources=False):
+    tiers, roles = parse(DEFAULTS)
+    origin = {('tier', k): 'default' for k in tiers} | {('role', k): 'default' for k in roles}
+    for path in files():
+        try:
+            text = path.read_text() if path.is_file() else None
+        except OSError:
+            text = None
+        if text is None:
+            continue
+        more_tiers, more_roles = parse(text, str(path))
+        tiers.update(more_tiers)
+        roles.update(more_roles)
+        origin.update({('tier', k): str(path) for k in more_tiers})
+        origin.update({('role', k): str(path) for k in more_roles})
+    return (tiers, roles, origin) if sources else (tiers, roles)
+
+
+def split_effort(slug):
+    head, _, tail = slug.rpartition('-')
+    return (head, tail) if head and tail in EFFORTS else (slug, '')
+
+
+def expand(slug, tiers):
+    """A slug -> (families, nth, effort): the tier's families in order and which one it asks for
+    (0 for the first), or the slug itself as its own family."""
+    if slug in ALIASES:
+        return ['inherit'], 0, ''
+    base, effort = split_effort(slug)
+    tier, _, nth = base.partition('.')
+    if tier in tiers and (not nth or nth.isdigit()):
+        return list(tiers[tier]), (int(nth) - 1 if nth else 0), effort
+    return [base], 0, effort
+
+
+def runnable(model, effort, runtime):
+    if model == 'inherit' or runtime == 'any':
+        return model, effort
+    if runtime == 'openrouter':
+        if model.startswith('openrouter:'):
+            return 'openrouter/' + model[11:], effort
+        return (model[3:], effort) if model.startswith('pi:openrouter/') else None
+    if runtime == 'pi':
+        # Pi runs any account it can (owner, 2026-10-14: every combination, kept simple): the
+        # ChatGPT subscription, OpenRouter (Grok, Jev Router, DeepSeek...), any `pi:` provider.
+        # Never a bare Claude family: a Claude plan login belongs to Claude's own apps.
+        if model.startswith('openrouter:'):
+            return 'openrouter/' + model[11:], effort
+        if model.startswith('codex:'):
+            return 'openai-codex/' + model[6:], effort
+        return (model[3:], effort) if model.startswith('pi:') else None
+    if model.startswith(('pi:', 'openrouter:')):
+        return None
+    if runtime == 'codex':
+        if not model.startswith('codex:'):
+            return None
+        return model[6:], effort
+    return None if model.startswith('codex:') else (model, effort)
+
+
+def pick(slugs, tiers, runtime, inherit):
+    """For each slug, the nth family this runtime can run (wrapping), in order."""
+    out = []
+    for slug in slugs:
+        families, nth, effort = expand(slug, tiers)
+        found = [p for p in (runnable(f, effort, runtime) for f in families)
+                 if p and (inherit or p[0] != 'inherit')]
+        if found:
+            out.append(found[nth % len(found)])
+    return out
+
+
+def resolve(target, runtime='any', every=False, inherit=True):
+    tiers, roles = load()
+    slugs = roles.get(target, [target])
+    out = pick(slugs, tiers, runtime, inherit)
+    default = parse(DEFAULTS)[1].get(target)
+    if not out and default and default != slugs:  # Nothing on the owner's line runs here.
+        out = pick(default, tiers, runtime, inherit)
+    return out if every else out[:1]
+
+
+def main(argv):
+    if argv[:1] == ['defaults'] and len(argv) == 1:
+        sys.stdout.write(DEFAULTS)
+        return 0
+    if argv[:1] == ['show'] and len(argv) == 1:
+        tiers, roles, origin = load(sources=True)
+        for name, values in tiers.items():
+            print(f"tier {name}: {', '.join(values)}\t{origin[('tier', name)]}")
+        for name, values in roles.items():
+            print(f"{name}: {', '.join(values)}\t{origin[('role', name)]}")
+        return 0
+    if argv[:1] == ['source'] and len(argv) == 2:
+        _, roles, origin = load(sources=True)
+        print(origin.get(('role', argv[1]), 'default' if argv[1] in roles else 'none'))
+        return 0
+    if argv[:1] != ['resolve'] or len(argv) < 2:
+        sys.exit(__doc__)
+    target, runtime, every, inherit = argv[1], 'any', False, True
+    rest = argv[2:]
+    while rest:
+        flag = rest.pop(0)
+        if flag == '--runtime' and rest and rest[0] in RUNTIMES:
+            runtime = rest.pop(0)
+        elif flag == '--all':
+            every = True
+        elif flag == '--no-inherit':
+            inherit = False
+        else:
+            sys.exit(__doc__)
+    found = resolve(target, runtime, every, inherit)
+    for model, effort in found:
+        print(f'{model}\t{effort}')
+    return 0 if found else 1
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))

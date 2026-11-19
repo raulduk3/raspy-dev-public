@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Global git commit-msg hook (core.hooksPath), for every local interface. SDD-SC-11.
+#
+# At tier 3 (lib/ai_ecosystem/tiers.py) it refuses a commit message with AI attribution: a
+# Co-authored-by line that names anthropic, openai, claude, codex, copilot or noreply@, and a
+# "generated with" line. It uses the same pattern as hooks/pre-tool-use-guard.sh.
+# Then it runs the repository's own commit-msg hook, so a global hooksPath does not turn it off.
+set -u
+here="$(dirname "$(readlink -f "$0")")"
+
+chain() {
+  local common hook
+  common="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || exit 0
+  hook="$common/hooks/commit-msg"
+  if [ -x "$hook" ] && [ -f "$hook" ]; then
+    exec "$hook" "$@"
+  fi
+  exit 0
+}
+
+tier=3
+tiers_py="$here/../../lib/ai_ecosystem/tiers.py"
+if [ -f "$tiers_py" ]; then
+  top="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE git rev-parse --show-toplevel 2>/dev/null || pwd)"
+  found="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE python3 -I "$tiers_py" --field tier "$top" 2>/dev/null || true)"
+  case "$found" in 0|1|2|3|4) tier="$found" ;; esac
+  # Where the project record turns the Git rules off, this hook applies no rule (SDD-PJ-04).
+  off="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE python3 -I "$tiers_py" --field off "$top" 2>/dev/null || true)"
+  case ",$off," in *,git,*) chain "$@" ;; esac
+fi
+
+if [ "$tier" = 3 ] && [ -f "${1:-}" ]; then
+  attribution='co-authored-by:.*(anthropic|openai|claude|codex|copilot|noreply@)|(^|[^a-z])generated with'
+  if grep -v '^#' "$1" | grep -Eiq "$attribution"; then
+    printf 'dev-platform commit-msg: professional repository: no tool or model attribution reaches the ledger\n' >&2
+    printf 'dev-platform commit-msg: remove the Co-authored-by line or the generated-with line\n' >&2
+    exit 1
+  fi
+fi
+
+chain "$@"

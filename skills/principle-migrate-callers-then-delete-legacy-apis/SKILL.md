@@ -1,7 +1,10 @@
 ---
 name: principle-migrate-callers-then-delete-legacy-apis
 description: "Apply when introducing a new internal API while old callers still exist. Migrate callers and delete the old API in the same wave instead of preserving compatibility layers."
+disable-model-invocation: true
 ---
+
+> **On this platform.** This is pstack's `principle-migrate-callers-then-delete-legacy-apis` skill (MIT, Lauren Tan; the unmodified source is in `vendor/pstack`). Read [the platform map](../../docs/pstack-platform.md) (installed: `/opt/dev-platform/current/docs/pstack-platform.md`) once per session: it says what the Cursor tools named here are on this machine, and which steps the guard hook leaves to the owner.
 
 # Migrate Callers Then Delete Legacy APIs
 

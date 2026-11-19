@@ -1,7 +1,10 @@
 ---
 name: interrogate
-description: "Use for \"interrogate\", \"adversarial review\", review by a second agent or a different tier from models.md, \"challenge this\", \"stress test this code\", \"find blind spots\", or \"tear this apart\". Multiple reviewers on different models challenge changes from independent angles."
+description: "Use for \"interrogate\", \"adversarial review\", \"multi-model review\", \"challenge this\", \"stress test this code\", \"find blind spots\", or \"tear this apart\". Multiple LLM reviewers challenge changes from independent angles."
+disable-model-invocation: true
 ---
+
+> **On this platform.** This is pstack's `interrogate` skill (MIT, Lauren Tan; the unmodified source is in `vendor/pstack`). Read [the platform map](../../docs/pstack-platform.md) (installed: `/opt/dev-platform/current/docs/pstack-platform.md`) once per session: it says what the Cursor tools named here are on this machine, and which steps the guard hook leaves to the owner.
 
 # Interrogate
 
@@ -32,17 +35,20 @@ Write one clear paragraph. If you're unsure about the intent, ask the user befor
 
 ## Step 3, Spawn Reviewers
 
-Launch all reviewers at once, in parallel, as subagents. Take their models from `models.md` (the tier map at the root of this skills repository): one reviewer per row in the table below, more if `models.md` lists more models for these tiers. If the file or a tier is missing, use the model you are running on for that reviewer and say so.
+Launch all reviewers in a single message using the Task tool. Use the `interrogate reviewers` line in `~/.cursor/rules/pstack-models.mdc`, one reviewer per entry, extending or shrinking the Reviewer A/B/C labels below to the configured entry count. If the rule or that line is missing, use the table defaults.
 
-| Subagent | Tier |
-|----------|------|
-| Reviewer A | judgment |
-| Reviewer B | judgment, on a different model from Reviewer A when `models.md` lists one |
-| Reviewer C | implementation |
+| Subagent | Default model |
+|----------|---------------|
+| Reviewer A | `judgment-max` |
+| Reviewer B | `judgment.2-max` |
+| Reviewer C | `implementation-xhigh` |
 
-Each reviewer is read-only.
+For each reviewer:
+- `subagent_type`: `generalPurpose`
+- `model`: the configured `interrogate reviewers` entry, or the table default with no configured line. For an `auto` or `inherit-parent` entry, omit `model` so that reviewer runs on the parent model.
+- `readonly`: `true`
 
-If only one model is available, say so in the verdict: the reviewers then differ only in sampling, and consensus means less.
+If the Task tool rejects a configured entry, run that reviewer on the table default of its family and say so. Families are the entries of the model file's `tier` lines; `pstack-model resolve` walks them. With no family match, use Reviewer A's default. If it rejects a table default, check the valid slugs in the Task tool's error message, pick the closest equivalent (prefer the highest-reasoning tier of the same family), spawn with it, and open a separate PR to update the default table. Do not block the review on the slug issue. Never treat an alias entry as a rejected slug or apply either fallback to it.
 
 Read `references/reviewer-prompt.md` and fill in the template with:
 1. The stated intent

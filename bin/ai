@@ -1,0 +1,1115 @@
+#!/usr/bin/env python3
+"""ai: one menu over the whole AI environment.
+
+Arrow keys move, typing filters, Enter opens, Esc or Left goes back, Ctrl+C quits.
+Pick a project, a session, a role or a team. The menu hands the
+terminal to the command that already does that job (ai-environment, ai-session, ai-role,
+dev-workspace, rig, tmux, herdr) and comes back when it exits. It keeps no state of its
+own. `ai <text>` jumps straight to the project whose name matches. AI_MENU_DRY_RUN=1
+prints each launch instead of running it.
+"""
+from datetime import datetime, timezone
+import json
+import math
+import os
+from pathlib import Path
+import re
+import select
+import shlex
+import shutil
+import socket
+import subprocess
+import sys
+import termios
+import time
+import tty
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(ROOT / "lib"))
+from ai_ecosystem import accounts, conversations, paths, rigshape, usage, workspace  # noqa: E402
+from ai_ecosystem.store import Store  # noqa: E402
+
+HOME = Path.home()
+REPOS = Path(os.environ.get("DEV_PLATFORM_REPOS", HOME / ".config/dev-platform/repos.conf"))
+DEV_ROOT = os.environ.get("AI_MENU_DEV_ROOT", str(HOME / "dev"))
+REGISTRY = HOME / ".config/dev-platform/accounts.json"
+PI_PROFILES = HOME / ".local/share/dev-platform/accounts/pi"
+TEAMS = paths.teams()
+DRY = os.environ.get("AI_MENU_DRY_RUN") == "1"
+PROVIDER = {"claude": "anthropic", "codex": "openai"}
+CLIENT = {"claude": "Claude Code", "codex": "Codex"}
+
+
+class Quit(Exception):
+    pass
+
+
+def clean_environment():
+    """Make launches see what a plain terminal would. A Claude desktop terminal marks itself
+    and sets the default Anthropic URL; dropping a value equal to the default changes no
+    provider. Any other override stays, and accounts.conflicts reports it on the home screen."""
+    for name in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CODEX_HOME", "CODEX_THREAD_ID", "CLAUDE_CONFIG_DIR"):
+        os.environ.pop(name, None)
+    if os.environ.get("ANTHROPIC_BASE_URL", "").rstrip("/") == "https://api.anthropic.com":
+        del os.environ["ANTHROPIC_BASE_URL"]
+    path = os.environ.get("PATH", "").split(os.pathsep)
+    os.environ["PATH"] = os.pathsep.join(path + [p for p in (str(HOME / ".local/bin"), "/usr/local/bin")
+                                                 if p not in path])
+
+
+def tool(name):
+    return [sys.executable, str(ROOT / "bin" / name)]
+
+
+def run(argv, cwd=None, extra=None, pause=False):
+    """Hand the terminal to a command and come back when it exits. With pause, or when the
+    command fails, its output stays on screen until a key is pressed."""
+    if DRY:
+        tail = "".join(f" {k}={v}" for k, v in (extra or {}).items())
+        print("RUN " + " ".join(str(a) for a in argv) + (f"  in {cwd}" if cwd else "") + tail)
+        return 0
+    if keyboard():
+        sys.stdout.write(CLEAR + SHOW)
+        sys.stdout.flush()
+    try:
+        code = subprocess.run([str(a) for a in argv], cwd=cwd, env={**os.environ, **(extra or {})}).returncode
+    except KeyboardInterrupt:
+        code = 130
+    except OSError as error:
+        print(f"  could not start {argv[0]}: {error}")
+        code = 127
+    if pause or code not in (0, 130):
+        wait()
+    return code
+
+
+def note(text):
+    """A message the user must see before the menu redraws over it."""
+    print(f"\n  {text}")
+    wait()
+
+
+def ecosystem_report():
+    """Read the machine contract before opening or reshaping teams. This is intentionally
+    read-only; repair stays in ai-env/dev-workspace/rig/herdr where each tool owns it."""
+    if DRY:
+        return {'openrig': {'command': {'state': 'ok'}, 'runtime': {'state': 'ok'}, 'config': {'state': 'ok'},
+                            'workspace': {'state': 'ok'}},
+                'herdr': {'command': {'state': 'ok'}, 'server': {'state': 'ok'}, 'config': {'state': 'ok'},
+                          'socket': {'state': 'ok'}},
+                'surfaces': {'instructions': {'state': 'ok'}},
+                'tmux': {'server_environment': {'state': 'ok'}}}
+    return read_json(tool("ai-env") + ["doctor", "--json"])
+
+
+def bad_state(report, paths):
+    bad = []
+    for label, path in paths:
+        value = report
+        for part in path:
+            value = value.get(part) if isinstance(value, dict) else None
+        state = value.get("state") if isinstance(value, dict) else None
+        if state not in ("ok", "unavailable"):
+            bad.append(f"{label}: {state or 'missing'}")
+    return bad
+
+
+def ensure_team_contract():
+    report = ecosystem_report()
+    if not report:
+        note("Could not read ai-env doctor; not starting or reshaping a team until the machine contract is visible.")
+        return False
+    problems = bad_state(report, [("OpenRig command", ("openrig", "command")),
+                                  ("OpenRig runtime", ("openrig", "runtime")),
+                                  ("OpenRig config", ("openrig", "config")),
+                                  ("OpenRig workspace", ("openrig", "workspace")),
+                                  ("instruction surfaces", ("surfaces", "instructions")),
+                                  ("tmux provider environment", ("tmux", "server_environment"))])
+    if problems:
+        note("Team launch is blocked until the platform contract is healthy:\n  " + "\n  ".join(problems) +
+             "\nRun `ai-env doctor` for details.")
+        return False
+    return True
+
+
+def ensure_panel_contract():
+    report = ecosystem_report()
+    if not report:
+        note("Could not read ai-env doctor; opening tmux directly instead of touching herdr panels.")
+        return False
+    problems = bad_state(report, [("herdr command", ("herdr", "command")),
+                                  ("herdr server", ("herdr", "server")),
+                                  ("herdr config", ("herdr", "config")),
+                                  ("herdr socket", ("herdr", "socket"))])
+    if problems:
+        note("Herdr panel opening is blocked until the panel contract is healthy:\n  " + "\n  ".join(problems) +
+             "\nRun `ai-env doctor` for details.")
+        return False
+    return True
+
+
+def wait():
+    if keyboard():
+        print("\n  Press any key to go back.")
+        read_key()
+
+
+def read_json(argv):
+    try:
+        result = subprocess.run([str(a) for a in argv], capture_output=True, text=True, timeout=60)
+        return json.loads(result.stdout)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
+def ask(prompt):
+    if keyboard():
+        sys.stdout.write(SHOW)
+    try:
+        return input(prompt).strip()
+    except EOFError:
+        raise Quit from None
+
+
+def confirm(question):
+    return ask(f"{question} [y/N] ").lower() in ("y", "yes")
+
+
+CLEAR, SHOW, HIDE, BOLD, DIM, INVERT, RESET = "\x1b[H\x1b[2J", "\x1b[?25h", "\x1b[?25l", "\x1b[1m", "\x1b[2m", "\x1b[7m", "\x1b[0m"
+KEYS = {"\x1b[A": "up", "\x1b[B": "down", "\x1b[C": "right", "\x1b[D": "left", "\x1bOA": "up", "\x1bOB": "down",
+        "\x1bOC": "right", "\x1bOD": "left", "\x1b[5~": "pageup", "\x1b[6~": "pagedown", "\x1b": "esc",
+        "\r": "enter", "\n": "enter", "\x7f": "backspace", "\x08": "backspace"}
+
+
+def keyboard():
+    return not DRY and sys.stdin.isatty() and sys.stdout.isatty() and os.environ.get("TERM") != "dumb"
+
+
+def read_key():
+    """One keypress, with arrow keys decoded. Ctrl+C still interrupts."""
+    fd = sys.stdin.fileno()
+    saved = termios.tcgetattr(fd)
+    try:
+        tty.setcbreak(fd, termios.TCSANOW)  # the default mode change would discard keys typed ahead
+        key = os.read(fd, 1).decode(errors="ignore")
+        # An escape sequence is ESC, [ or O, then bytes up to a letter or ~. A lone ESC is Esc.
+        if key == "\x1b" and select.select([fd], [], [], 0.05)[0]:
+            key += os.read(fd, 1).decode(errors="ignore")
+            while key[-1] in "[O0123456789;" and len(key) < 8:
+                key += os.read(fd, 1).decode(errors="ignore")
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, saved)
+    return KEYS.get(key, key)
+
+
+def choose(title, items, hint=None):
+    """Arrow keys move, typing filters, Enter picks, Esc or Left goes back. Without a
+    terminal (a pipe, a test) it reads numbers instead."""
+    if not keyboard():
+        return choose_numbered(title, items, hint)
+    query, index, top = "", 0, 0
+    try:
+        while True:
+            shown = [item for item in items if query.lower() in item[0].lower()]
+            index = max(0, min(index, len(shown) - 1))
+            height = max(3, shutil.get_terminal_size().lines - 7)
+            top = min(max(top, index - height + 1), index)
+            lines = [CLEAR + HIDE + f"{BOLD}{title}{RESET}"]
+            lines.append(f"{DIM}{hint}{RESET}" if hint else "")
+            lines.append(f"Filter: {query}" if query else f"{DIM}Type to filter{RESET}")
+            for number, (label, _) in enumerate(shown[top:top + height], top):
+                lines.append(f"{INVERT} {label} {RESET}" if number == index else f"  {label}")
+            if not shown:
+                lines.append(f"{DIM}  nothing matches{RESET}")
+            if len(shown) > height:
+                lines.append(f"{DIM}  {index + 1} of {len(shown)}{RESET}")
+            lines.append(f"\n{DIM}↑↓ move · Enter open · Esc back · Ctrl+C quit{RESET}")
+            sys.stdout.write("\n".join(lines))
+            sys.stdout.flush()
+            key = read_key()
+            if key in ("up", "down", "pageup", "pagedown"):
+                step = {"up": -1, "down": 1, "pageup": -height, "pagedown": height}[key]
+                index = (index + step) % len(shown) if shown and abs(step) == 1 else index + step
+            elif key in ("enter", "right") and shown:
+                return shown[index][1]
+            elif key == "esc" and query:
+                query, index = "", 0
+            elif key in ("esc", "left"):
+                return None
+            elif key == "backspace":
+                query, index = query[:-1], 0
+            elif len(key) == 1 and key.isprintable():
+                query, index = query + key, 0
+    finally:
+        sys.stdout.write(CLEAR + SHOW)
+        sys.stdout.flush()
+
+
+def choose_numbered(title, items, hint=None):
+    """A number picks, other text filters the list, Enter or b goes back, q quits."""
+    query = ""
+    while True:
+        shown = [item for item in items if query.lower() in item[0].lower()]
+        print(f"\n{title}" + (f"  · filter: {query}" if query else ""))
+        if hint:
+            print(f"  {hint}")
+        for number, (label, _) in enumerate(shown[:30], 1):
+            print(f"  {number:>2}  {label}")
+        if len(shown) > 30:
+            print(f"      and {len(shown) - 30} more; type part of a name to filter")
+        if not shown:
+            print("      nothing here" + (" matches" if query else ""))
+        answer = ask("› ")
+        if answer in ("", "b"):
+            if not query:
+                return None
+            query = ""
+        elif answer == "q":
+            raise Quit
+        elif answer.isdigit():
+            if 1 <= int(answer) <= min(len(shown), 30):
+                return shown[int(answer) - 1][1]
+            print(f"  There is no {answer} here.")
+        else:
+            query = answer
+
+
+def ago(value):
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            return "unknown"
+    if not value:
+        return "never"
+    minutes = int((time.time() - value) / 60)
+    for size, unit in ((1440, "d"), (60, "h"), (1, "m")):
+        if minutes >= size:
+            return f"{minutes // size}{unit} ago"
+    return "just now"
+
+
+def slug(text):
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:40] or "project"
+
+
+# Projects -------------------------------------------------------------------------------
+
+def catalog():
+    return workspace.catalog(REPOS, DEV_ROOT)[0]
+
+
+def name(project):
+    return Path(project["root"]).name
+
+
+def team_name(project):
+    return "engineer-" + slug(name(project))
+
+
+def project_for(path):
+    identity = workspace.identity(path)
+    return next((p for p in catalog() if identity and p["common_dir"] == identity), None)
+
+
+def touched(project):
+    """When the repository last changed: its HEAD log or index, whichever is newer."""
+    common = Path(project["common_dir"] or "")
+    return max((f.stat().st_mtime for f in (common / "logs/HEAD", common / "index") if f.is_file()), default=0)
+
+
+def projects_menu(query=""):
+    projects = sorted(catalog(), key=touched, reverse=True)
+    width = max((len(name(p)) for p in projects), default=0)
+    items = [(f"{name(p):<{width}}  {DIM if keyboard() else ''}{p['repo'] or p['group']} · changed {ago(touched(p))}"
+              + (" · loop" if p["loop_enabled"] else "") + (RESET if keyboard() else ""), p)
+             for p in projects if query.lower() in name(p).lower()]
+    if query and len(items) == 1:
+        return project_menu(items[0][1])
+    project = choose("Projects", items)
+    if project:
+        project_menu(project)
+
+
+def project_menu(project):
+    branch = subprocess.run(["git", "-C", project["root"], "branch", "--show-current"],
+                            capture_output=True, text=True).stdout.strip()
+    while True:
+        items = [("Claude here", lambda: open_client(project, "claude")),
+                 ("Codex here", lambda: open_client(project, "codex"))]
+        if project["source"] == "repos.conf":
+            items.append(("Engineer on this project", lambda: role_menu("engineer", project)))
+        items += [("Resume a session here", lambda: sessions_menu(project)),
+                  ("This project's team", lambda: project_team(project))]
+        if project["loop_enabled"]:
+            items += [("Write or change the spec", lambda: spec_session(project)),
+                      ("Development loop", lambda: loop_menu(project))]
+        if shutil.which("code"):
+            items.append(("Open in VS Code", lambda: run(["code", project["root"]])))
+        pick = choose(f"{name(project)} · {project['root']}" + (f" · on {branch}" if branch else ""), items)
+        if pick is None:
+            return
+        pick()
+
+
+# Accounts -------------------------------------------------------------------------------
+
+def usage_rows(client):
+    try:
+        view = usage.unified_view(accounts.load(REGISTRY), openrig_home=HOME / ".openrig")
+        return [row for row in view["accounts"] if row["client"] == CLIENT[client]]
+    except Exception:  # a usage read failing must not block a launch; fall back to names
+        prefix = PROVIDER[client] + "-"
+        names = sorted(a for a in accounts.load(REGISTRY).get("bindings", {}) if a.startswith(prefix))
+        return [{"account": a, "state": "unknown", "windows": [], "freshness": ""} for a in names]
+
+
+def usage_windows(row):
+    windows = row.get("windows")
+    return windows if isinstance(windows, list) else []
+
+
+def headroom(row):
+    if row["state"] in ("exhausted", "unverified"):
+        return -2
+    used = [w["used_percent"] for w in usage_windows(row) if w.get("used_percent") is not None]
+    return 100 - max(used) if used else -1
+
+
+WINDOW = {"five_hour": "5h", "seven_day": "7d", "primary": "week"}
+
+
+def account_label(row):
+    windows = ", ".join(f"{WINDOW.get(w['window'], w['window'])} {w['used_percent']:.0f}% used"
+                        for w in usage_windows(row))
+    age = "" if row.get("freshness") in ("live", "") else f" · {row['freshness']}"
+    return f"{row['account']:<16} {row['state']:<13} {windows or 'usage unknown'}{age}"
+
+
+def pick_account(client):
+    rows = sorted(usage_rows(client), key=headroom, reverse=True)
+    items = [(account_label(r) + ("  · most room" if i == 0 and headroom(r) > 0 else ""), r["account"])
+             for i, r in enumerate(rows)]
+    return choose(f"Which {CLIENT[client]} account?", items)
+
+
+def open_client(project, client, prompt=None):
+    """Open a client in the project; with prompt, it starts the conversation with that request."""
+    account = pick_account(client)
+    if account:
+        run(tool("ai-environment") + ["run", "--client", client, "--provider", PROVIDER[client],
+                                      "--preferred-account", account, "--allow-unknown-quota",
+                                      "--cwd", project["root"]] + ([prompt] if prompt else []))
+
+
+SPEC_PROMPT = ("Use the intake skill to spec out this project. The goal: {goal}. Write the decision for me to "
+               "accept, then the requirements in docs/spec and the task files with dev-loop tasks, on a docs/ branch. "
+               "Cut the work into ready tasks whose Scope paths do not overlap, so several workers can build them at "
+               "once, and mark each one ready. Stop when the spec branch is ready for me to merge.")
+
+
+def spec_session(project, goal=None):
+    """Open a client in the project already asked to write or change its specification."""
+    goal = goal or ask("What should the spec cover? ")
+    if not goal:
+        return
+    client = choose("Who writes the spec?", [("Claude", "claude"), ("Codex", "codex")])
+    if client:
+        open_client(project, client, SPEC_PROMPT.format(goal=goal))
+
+
+def new_project():
+    """A goal in plain words becomes a local repository, registered for the loop, with a client
+    already asked to write its specification."""
+    answer = ask("Project name (a folder in ~/Dev): ")
+    if not answer:
+        return
+    project_name = slug(answer)
+    folder = Path(DEV_ROOT) / project_name
+    if folder.exists():
+        note(f"{folder} already exists. Open it from Projects instead.")
+        return
+    goal = ask("What do you want to build? ")
+    if run([str(ROOT / "bin/new-repo"), folder, "--register", "--personal"], pause=True) != 0 and not DRY:
+        return
+    project = next((p for p in catalog() if Path(p["root"]).resolve() == folder.resolve()), None)
+    if project is None:
+        note(f"{folder} was created but is not in repos.conf; open it from Projects.")
+        return
+    if goal:
+        client = choose("Who writes the spec?", [("Claude", "claude"), ("Codex", "codex"),
+                                                  ("Open it in VS Code first; spec it later", "code")],
+                        "Later: the project's menu, Write or change the spec.")
+        if client == "code":
+            run(["code", folder])
+        elif client:
+            open_client(project, client, SPEC_PROMPT.format(goal=goal))
+    project_menu(project)
+
+
+def jev_route_prompt():
+    text = ask("Request to classify with Jev: ")
+    if text:
+        run(tool("ai-jev") + ["decide", "route-task", "--provider", "http", "--state",
+                              json.dumps({"request": text})], pause=True)
+
+
+def accounts_menu():
+    items = [("Usage for every account", lambda: run(tool("ai-usage"), pause=True)),
+             ("Check the whole setup", lambda: run(tool("ai-env") + ["doctor"], pause=True)),
+             ("Refresh the session list, about 20 seconds", lambda: run(tool("ai-session") + ["scan"], pause=True)),
+             ("Jev status and spend", lambda: run(tool("ai-jev") + ["status"], pause=True)),
+             ("Classify a request with Jev", jev_route_prompt)]
+    while (pick := choose("Accounts and setup", items)) is not None:
+        pick()
+
+
+# Sessions and roles ---------------------------------------------------------------------
+
+def sessions_menu(project):
+    projects = catalog()
+    names = {p["id"]: name(p) for p in projects}
+    rows = workspace.session_rows(projects, Store().root, project["id"] if project else None, 200)["sessions"]
+    items = []
+    for row in rows:
+        if row["runtime"] not in ("claude", "codex") or row["owner"] != "user":
+            continue
+        where = Path(row["cwd"] or "?").name
+        owner = names.get(row["project"], "")
+        parts = [f"[{row['runtime']}]", *([owner] if owner and owner != where else []), where,
+                 *([row["title"]] if row["title"] else []), ago(row["updated_at"])]
+        items.append((" · ".join(parts), row))
+    pick = choose("Resume a session" + (f" in {name(project)}" if project else ""), items,
+                  "Newest first. The list is as fresh as its last refresh, under Accounts and setup.")
+    if pick:
+        run(tool("ai-session") + ["resume", pick["id"], "--execute"])
+
+
+def last_used(store, conversation):
+    folder = conversations.path_for(store, conversation["id"]) / "native/pi"
+    stamps = [p.stat().st_mtime for p in folder.glob("*.jsonl")] if folder.is_dir() else []
+    return max(stamps, default=0), bool(stamps)
+
+
+def role_menu(agent, project=None):
+    store = Store()
+    mine = [c for c in conversations.list_conversations(store) if c["agent"] == agent
+            and (project is None or c["scope"].get("project_id") == project["id"])]
+    mine.sort(key=lambda c: last_used(store, c)[0] or c.get("created_at", 0), reverse=True)
+    items = [(f"Continue: {c['title']} · {ago(last_used(store, c)[0] or c.get('created_at'))}", c) for c in mine]
+    items.append(("Start a new conversation", "new"))
+    title = {"assistant": "Assistant, personal", "ops": "Ops, this machine"}.get(agent, f"Engineer on {name(project) if project else ''}")
+    pick = choose(title, items)
+    if pick == "new":
+        pick = new_conversation(agent, project)
+    if pick:
+        launch_role(store, pick)
+
+
+def session_title(text, agent, project=None):
+    """The stored title in the one session format (docs/session-naming.md). who is the role
+    persona; the account and model are not chosen yet, so those fields stay unknown. Keep the
+    typed text if ai-title cannot run."""
+    argv = tool("ai-title") + ["format", "--client", "pi", "--who", agent, "--type", "interactive", "--purpose", "chat"]
+    if project:
+        argv += ["--project", name(project), "--cwd", project["root"]]
+    argv += ["--", text]
+    try:
+        done = subprocess.run(argv, capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        return text
+    return done.stdout.strip() if done.returncode == 0 and done.stdout.strip() else text
+
+
+def new_conversation(agent, project):
+    default = name(project) if project else datetime.now().strftime("%B %-d")
+    title = session_title(ask(f"Name it, or Enter for '{default}': ") or default, agent, project)
+    argv = tool("ai-session") + ["conversation", "create", "--agent", agent, "--title", title]
+    if agent == "engineer":
+        argv += ["--project", project["id"], "--workspace", project["root"]]
+    elif agent == "ops":
+        argv += ["--resource", "this-mac"]
+    if DRY:
+        run(argv)
+        return None
+    created = read_json(argv)
+    if not created or "id" not in created:
+        note("The conversation could not be created; run the same step from ai-session to see why.")
+    return created
+
+
+def launch_role(store, conversation):
+    argv = tool("ai-role") + ["launch", conversation["id"]]
+    profiles = sorted(d.name for d in PI_PROFILES.iterdir() if d.is_dir()) if PI_PROFILES.is_dir() else []
+    if len(profiles) > 1:
+        chosen = choose("Which Pi account?", [(p, p) for p in profiles])
+        if not chosen:
+            return
+        argv += ["--account", chosen]
+    elif profiles:
+        chosen = profiles[0]
+        argv += ["--account", chosen]
+    else:
+        chosen = None
+    resume, others = resume_for(store, conversation, chosen)
+    if resume:
+        argv += ["--resume", resume]
+    elif others:
+        note(f"Starting a fresh session on {chosen}; this conversation's earlier sessions were on "
+             f"{', '.join(others)} and resume only on that account.")
+    run(argv)
+
+
+def session_account(path):
+    """The account a native Pi session was started on, from its first binding entry."""
+    try:
+        with path.open() as lines:
+            for line in lines:
+                entry = json.loads(line)
+                if entry.get("type") == "custom" and entry.get("customType") == "dev-platform-binding":
+                    return (entry.get("data") or {}).get("accountRef")
+    except (OSError, ValueError, AttributeError):
+        pass
+    return None
+
+
+def resume_for(store, conversation, account):
+    """Resume the newest session bound to this account; Pi refuses to resume one bound to another.
+    Returns the --resume value or None, and the other accounts' names when starting fresh."""
+    folder = conversations.path_for(store, conversation["id"]) / "native/pi"
+    files = sorted((p for p in folder.glob("*.jsonl") if p.is_file() and not p.is_symlink()),
+                   key=lambda p: p.stat().st_mtime, reverse=True) if folder.is_dir() else []
+    wanted = f"{account}:pi" if account else None
+    others = []
+    for index, path in enumerate(files):
+        bound = session_account(path)
+        if wanted and bound == wanted:
+            return ("latest" if index == 0 else str(path.resolve())), []
+        if bound and bound.removesuffix(":pi") not in others:
+            others.append(bound.removesuffix(":pi"))
+    return None, others
+
+
+# Teams ----------------------------------------------------------------------------------
+
+def rigs():
+    data = read_json(tool("rig") + ["ps", "--json"])
+    return (data.get("entries") if isinstance(data, dict) else data) or []
+
+
+def seats(team):
+    return read_json(tool("rig") + ["ps", "--nodes", "--rig", team, "--json"]) or []
+
+
+def exited_to_shell(seat):
+    """An agent ended from inside its tile leaves its seat's terminal at a bare shell: the
+    shell tmux started is then the only foreground process on that terminal. The command
+    name alone cannot tell, because an agent may itself run under a shell-script wrapper."""
+    if DRY or not seat.get("canonicalSessionName") or not shutil.which("tmux"):
+        return False
+    shown = subprocess.run(["tmux", "display", "-p", "-t", seat["canonicalSessionName"], "#{pane_pid} #{pane_tty}"],
+                           capture_output=True, text=True).stdout.split()
+    if len(shown) != 2:
+        return False
+    listing = subprocess.run(["ps", "-o", "pid=,stat=", "-t", Path(shown[1]).name], capture_output=True, text=True)
+    foreground = [row.split()[0] for row in listing.stdout.splitlines() if len(row.split()) == 2 and "+" in row.split()[1]]
+    return foreground == [shown[0]]
+
+
+def seat_state(seat):
+    activity = seat.get("agentActivity") or {}
+    if seat.get("sessionStatus") != "running":
+        return "stopped"
+    if exited_to_shell(seat):
+        return "stopped, left at a shell"
+    if activity.get("state") == "needs_input" or "prompt" in str(activity.get("reason")):
+        return "waiting on you"
+    state = {"running": "working", "idle": "idle"}.get(activity.get("state"), "running")
+    return state + (" · OpenRig asks you to look" if seat.get("lifecycleState") == "attention_required" else "")
+
+
+def team_project(team):
+    """A team belongs to one project. Its team folder records the repository, which
+    survives renaming the checkout; a team without that record matches by name."""
+    marker = TEAMS / team.removeprefix("engineer-") / "project"
+    repo = marker.read_text().strip() if marker.is_file() else None
+    projects = catalog()
+    return (next((p for p in projects if repo and p["repo"] == repo), None)
+            or next((p for p in projects if team_name(p) == team), None))
+
+
+def team_for(project):
+    """The project's team: the one whose team folder records this repository, else by name."""
+    for marker in sorted(TEAMS.glob("*/project")) if project["repo"] else []:
+        if marker.read_text().strip() == project["repo"]:
+            return "engineer-" + marker.parent.name
+    return team_name(project)
+
+
+def teams_menu():
+    while True:
+        items = []
+        for r in rigs():
+            team = r.get("rigName") or r.get("name")
+            project = team_project(team)
+            items.append((f"{team} · {name(project) if project else 'no project'} · "
+                          f"{r.get('runningCount', 0)} of {r.get('nodeCount', 0)} running"
+                          + (f" · {r['attentionCount']} need you" if r.get("attentionCount") else ""), team))
+        team = choose("Teams", items, None if items else "No team is running. Start one from a project.")
+        if team is None:
+            return
+        team_menu(team, team_project(team))
+
+
+def project_team(project):
+    team = team_for(project)
+    if team not in {r.get("rigName") or r.get("name") for r in rigs()}:
+        # The team's own team folder, which a renamed checkout still finds through its record.
+        folder = TEAMS / team.removeprefix("engineer-")
+        if (folder / "rig.yaml").is_file():
+            print(f"\n{name(project)}'s team is not running. Starting it opens the team defined in "
+                  f"{folder / 'rig.yaml'}.")
+        else:
+            print(f"\n{name(project)} has no team yet. Its seats work from {folder}, outside the repository;\n"
+                  f"workers join later, one per task. Pick its shape first; you can change it any time.")
+            shape = pick_shape()
+            if shape is None:
+                return
+        if not confirm("Start it?"):
+            return
+        if not ensure_team_contract():
+            return
+        folder.mkdir(parents=True, exist_ok=True)
+        if project["repo"]:
+            (folder / "project").write_text(project["repo"] + "\n")
+        if not (folder / "rig.yaml").is_file() and \
+                run(tool("rig-shape") + ["write", project["repo"] or project["root"], *shape]) != 0 and not DRY:
+            return
+        if run(tool("dev-workspace") + ["start", "engineer", "--cwd", folder, "--rig", team]) != 0 and not DRY:
+            return
+    team_menu(team, project)
+
+
+def pick_shape():
+    """A shape and the seats' runtime, as rig-shape write arguments; None when declined."""
+    shape = choose("Which shape?", [(f"{shape} · {summary.split(': ', 1)[-1]}", shape)
+                                    for shape, summary in rigshape.shapes().items()],
+                   "build is the standard team. The shape is recorded in the team folder's own history.")
+    if shape is None:
+        return None
+    runtime = choose("Which runtime for the seats?", [("As the shape says", "shape"),
+                                                      ("Claude Code for every seat", "claude-code"),
+                                                      ("Codex for every seat", "codex")])
+    if runtime is None:
+        return None
+    return [shape] + ([] if runtime == "shape" else ["--all", runtime])
+
+
+def team_menu(team, project=None):
+    folder = Path(project["root"]) if project else HOME
+    while True:
+        rows = seats(team)
+        rig_id = rows[0]["rigId"] if rows else None
+        items = [("Open the team's space in herdr", "view")]
+        items += [(f"{s['logicalId']} · {s.get('runtime')} · {seat_state(s)}", s) for s in rows]
+        if project:
+            items += [("Seat a loop worktree", "seat"), ("Unseat a finished worker", "unseat"),
+                      ("Shape this team (takes effect at its next start)", "shape"), ("Shape history", "history")]
+        items.append(("Stop this team", "stop"))
+        where = f" · {name(project)}" if project else ""
+        pick = choose(f"Team {team}{where}", items, "The team's space holds rig tui and every agent in one tab.")
+        if pick is None:
+            return
+        if pick == "view":
+            show_in_herdr(team, rows, folder)
+        elif pick == "stop":
+            if confirm(f"Stop every agent in {team}? OpenRig keeps a snapshot."):
+                run(tool("rig") + ["down", rig_id or team])
+                close_team_spaces(team)
+                return
+        elif pick in ("seat", "unseat"):
+            worker_seat(project, team, pick)
+        elif pick == "shape":
+            shape = pick_shape()
+            if shape:
+                run(tool("rig-shape") + ["write", project["repo"] or project["root"], *shape], pause=True)
+        elif pick == "history":
+            run(tool("rig-shape") + ["history", project["repo"] or project["root"]], pause=True)
+        elif seat_state(pick).startswith("stopped"):
+            if confirm(f"{pick['logicalId']} is stopped. Relaunch it with its saved conversation?"):
+                relaunch(rig_id, pick)
+        elif not show_in_herdr(team, rows, folder, pick["canonicalSessionName"]):
+            session = pick["canonicalSessionName"]
+            run(["tmux", "switch-client", "-t", session] if os.environ.get("TMUX") else ["tmux", "attach", "-t", session])
+
+
+def relaunch(rig_id, seat):
+    """OpenRig relaunches only a seat whose terminal is gone, and only from a snapshot. A
+    terminal left at a bare shell holds nothing, so it is closed first."""
+    if exited_to_shell(seat):
+        subprocess.run(["tmux", "kill-session", "-t", seat["canonicalSessionName"]], capture_output=True)
+    run(tool("rig") + ["snapshot", rig_id], pause=False)
+    run(tool("rig") + ["launch", rig_id, seat["logicalId"]], pause=True)
+
+
+# Herdr ----------------------------------------------------------------------------------
+# A team's space is built here over herdr's socket, the protocol OpenRig's own adapter
+# uses: one space per team named after it, opened in the project's folder, with one tab
+# holding rig tui and a tile for each running agent. A tile only views an agent through
+# tmux; closing a tile, tab or space stops nothing.
+
+HERDR_SOCKET = Path(os.environ.get("HERDR_SOCKET_PATH", HOME / ".config/herdr/herdr.sock"))
+
+
+def herdr(method, **params):
+    """One request on herdr's socket. Returns the result, or None when herdr is not running
+    or refuses. A dry run prints the request instead."""
+    if DRY:
+        print("HERDR " + method + " " + json.dumps(params, sort_keys=True))
+        return None
+    try:
+        with socket.socket(socket.AF_UNIX) as conn:
+            conn.settimeout(5)
+            conn.connect(str(HERDR_SOCKET))
+            request = {"id": f"ai-{time.monotonic_ns()}", "method": method, "params": params}
+            conn.sendall((json.dumps(request) + "\n").encode())
+            data = b""
+            while b"\n" not in data and (chunk := conn.recv(65536)):
+                data += chunk
+        return json.loads(data.split(b"\n")[0]).get("result")
+    except (OSError, ValueError):
+        return None
+
+
+def grid(nodes):
+    """Equal tiles, as close to square as the count allows, like OpenRig's auto-grid."""
+    def strip(items, direction):
+        if len(items) == 1:
+            return items[0]
+        return {"type": "split", "direction": direction, "ratio": 1 / len(items),
+                "first": items[0], "second": strip(items[1:], direction)}
+    columns = math.ceil(math.sqrt(len(nodes)))
+    return strip([strip(nodes[i:i + columns], "right") for i in range(0, len(nodes), columns)], "down")
+
+
+def openrig_views(team):
+    """The spaces OpenRig's own open command makes for a team; each one duplicates tiles."""
+    pattern = re.compile(rf"openrig:(rig:{re.escape(team)}#|pod:{re.escape(team)}/)")
+    return [w for w in (herdr("workspace.list") or {}).get("workspaces", []) if pattern.match(w.get("label") or "")]
+
+
+def close_team_spaces(team):
+    views = {v["workspace_id"] for v in openrig_views(team)}
+    for space in (herdr("workspace.list") or {}).get("workspaces", []):
+        if space.get("label") == team or space["workspace_id"] in views:
+            herdr("workspace.close", workspace_id=space["workspace_id"])
+
+
+def team_layout(seats, folder):
+    """rig tui in a column on the left, then a tile for every running agent."""
+    # Quitting rig tui must not close its pane, or the space loses its dashboard; the pane
+    # offers it again. Reduced motion stops its blinking command line and row flashes.
+    rig_tui = shlex.join([sys.executable, str(ROOT / "bin/rig"), "tui"])
+    tui = {"type": "pane", "label": "rig tui", "cwd": str(folder), "env": {"OPENRIG_REDUCED_MOTION": "1"},
+           "command": ["sh", "-c", f"while :; do {rig_tui}; printf '\\nrig tui closed. Press Enter to open it again.\\n'; "
+                                   "read _ || exit; done"]}
+    # Tiles are labeled with the seat's session name: OpenRig's herdr adapter matches the same
+    # label, so opening a seat from rig tui focuses its tile here instead of making a new space.
+    agents = [{"type": "pane", "label": s["canonicalSessionName"], "command": ["tmux", "attach", "-t", s["canonicalSessionName"]]}
+              for s in seats if not seat_state(s).startswith("stopped")]
+    if not agents:
+        return tui
+    return {"type": "split", "direction": "right", "ratio": 0.34, "first": tui, "second": grid(agents)}
+
+
+def team_space(team, seats, folder):
+    """Find or build the team's one space: a single tab named team, holding rig tui and a
+    tile for every running agent. A space missing any of them is rebuilt whole."""
+    here = os.environ.get("HERDR_WORKSPACE_ID")
+    for view in openrig_views(team):
+        if view["workspace_id"] != here:
+            herdr("workspace.close", workspace_id=view["workspace_id"])
+    wanted = {"rig tui"} | {s["canonicalSessionName"] for s in seats if not seat_state(s).startswith("stopped")}
+    keep = None
+    for candidate in (herdr("workspace.list") or {}).get("workspaces", []):
+        if candidate.get("label") != team:
+            continue
+        space_id = candidate["workspace_id"]
+        tabs = [t["tab_id"] for t in (herdr("tab.list", workspace_id=space_id) or {}).get("tabs", [])
+                if t.get("label") == "team"]
+        shown = {p.get("label") for p in (herdr("pane.list", workspace_id=space_id) or {}).get("panes", [])
+                 if p["tab_id"] in tabs}
+        if keep is None and len(tabs) == 1 and wanted <= shown:
+            keep = space_id
+        elif space_id != here:
+            herdr("workspace.close", workspace_id=space_id)  # missing an agent, or an older layout
+    if keep:
+        return keep
+    created = herdr("workspace.create", label=team, cwd=str(folder), focus=False)
+    if not created:
+        return None
+    keep = created["workspace"]["workspace_id"]
+    starter = (herdr("tab.list", workspace_id=keep) or {}).get("tabs", [])
+    herdr("layout.apply", workspace_id=keep, tab_label="team", focus=True, root=team_layout(seats, folder))
+    for tab in starter:
+        herdr("tab.close", tab_id=tab["tab_id"])  # the empty shell a new space starts with
+    return keep
+
+
+def show_in_herdr(team, seats, folder, agent=None):
+    """Open the team's space, on one agent's tile when one is named. False when herdr is
+    not running, so the caller can open the agent directly instead."""
+    if not ensure_panel_contract():
+        return False
+    space = team_space(team, seats, folder)
+    if space is None:
+        if agent is None:
+            note("herdr is not running. Run `herdr` in another terminal, then open the space again.")
+        return False
+    panes = [p for p in (herdr("pane.list", workspace_id=space) or {}).get("panes", []) if p.get("label")]
+    target = next((p for p in panes if p["label"] == agent), panes[0] if panes else None)
+    if target:
+        herdr("tab.focus", tab_id=target["tab_id"])
+        herdr("pane.zoom", pane_id=target["pane_id"], mode="on" if agent else "off")
+    herdr("workspace.focus", workspace_id=space)
+    if not os.environ.get("HERDR_ENV"):
+        print(f"  Opening {team} in herdr. Ctrl+b then q comes back here; every agent keeps running.")
+        run(["herdr"])
+    return True
+
+
+def worktrees(project, seated):
+    found = []
+    root = Path(project["root"]) / ".claude/worktrees"
+    # Workers: slots that hold a task (.worker-issue), and old loop-<N>-* worktrees.
+    folders = [f for f in sorted(root.glob("slot-*")) if (f / ".worker-issue").is_file()] + sorted(root.glob("loop-*"))
+    for folder in folders:
+        guidance = [folder / "CLAUDE.md", folder / "AGENTS.md"]
+        has_seat = any(f.is_file() and "OpenRig MANAGED BLOCK" in f.read_text() for f in guidance)
+        if folder.is_dir() and has_seat == seated:
+            ready = " · ready for review" if (folder / ".worker-pr.md").exists() else ""
+            found.append((folder.name + ready, folder))
+    return found
+
+
+def worker_seat(project, team, action):
+    folder = choose("Which worktree?", worktrees(project, action == "unseat"),
+                    "Worktrees come from the development loop, one per issue.")
+    if folder is None:
+        return
+    if action == "unseat":
+        run(tool("dev-workspace") + ["remove-worker", "--rig", team, "--cwd", folder], pause=True)
+        marker = folder / ".worker-issue"
+        issue = marker.read_text().strip() if marker.is_file() else (re.match(r"loop-(\d+)-", folder.name) or [None, None])[1]
+        if issue and project["repo"]:
+            note(f"Folding releases the seat itself; to fold it into the goal's branch, run:\n"
+                 f"  dev-loop fold {project['repo']} {issue}")
+        return
+    client = choose("Which agent?", [("Claude", "claude"), ("Codex", "codex")])
+    account = client and pick_account(client)
+    if account:
+        run(tool("dev-workspace") + ["add-worker", client, "--rig", team, "--cwd", folder, "--account", account],
+            pause=True)
+
+
+# Loop -----------------------------------------------------------------------------------
+
+LOOP = ROOT / "skills/loop/scripts/loop.sh"
+
+
+def dev_loop(project, verb, *args):
+    """The loop script itself. Its owner verbs (land, finish, tidy --apply) run here because
+    this menu is the owner's terminal; the script still refuses them from an agent."""
+    return [str(LOOP), verb, project["repo"], *args]
+
+
+def loop_state(project):
+    return read_json(dev_loop(project, "state")) or {}
+
+
+def team_running(team):
+    return team in {r.get("rigName") or r.get("name") for r in rigs()}
+
+
+def loop_menu(project):
+    """One goal at a time: its branch, each worker's branch under it, and every lever."""
+    team = team_for(project)
+    local = project.get("mode") == "local"
+    while True:
+        state = loop_state(project)
+        rig, tip = state.get("rig"), state.get("base_tip") or state.get("base") or "the base"
+        items = []
+        if rig:
+            title = f"{project['repo']} · {rig} · {state.get('ahead', '?')} ahead of {tip}"
+            items += [(f"#{w['issue']} {w['branch']} · {w['state']}" + (f" · seat in {w['seat']}" if w.get("seat") else ""),
+                       ("worker", w)) for w in state.get("workers", [])]
+            items += [("Dispatch ready tasks in the background", "go"),
+                      (f"Dispatch ready tasks as seats in {team}", "seats"),
+                      ("Pause dispatch", "pause"),
+                      (f"Show everything on {rig}", "diff"),
+                      ("Watch it in VS Code", "watch"),
+                      (f"Land {rig}: merge it into {state.get('base')}" if local
+                       else f"Land {rig}: push it and open the pull request", "land")]
+            if not local:
+                items.append(("Finish after the pull request merged", "finish"))
+            hint = "Workers merge up into the goal's branch. Landing it on the base is your step."
+        else:
+            title = f"{project['repo']} · no goal branch open"
+            items.append(("Start a branch for a goal", "start"))
+            hint = f"Last landed: {state['last_rig']}." if state.get("last_rig") else "A goal gets one branch; workers branch from it."
+        items += [("Status", "status"), ("Plan", "plan"), ("Cycle report", "collect")]
+        if local:
+            items.append(("Tasks", "tasks"))
+        items.append(("Tidy merged branches and worktrees", "tidy"))
+        pick = choose(title, items, hint)
+        if pick is None:
+            return
+        if isinstance(pick, tuple):
+            worker_menu(project, state, pick[1], team)
+        elif pick == "seats":
+            if not team_running(team):
+                note(f"Start {team} first, under This project's team.")
+                continue
+            count = ask("How many workers at once? [3] ") or "3"
+            if not count.isdigit() or int(count) < 1:
+                note("A number of workers, 1 or more.")
+                continue
+            run(tool("ai-work") + ["loop", project["id"], "go"], extra={"LOOP_SEAT_RIG": team, "LOOP_CAP": count},
+                pause=True)
+        elif pick == "start":
+            branch = ask("Branch for this goal (type/slug, for example feat/snake-game): ")
+            if branch:
+                run(tool("ai-work") + ["loop", project["id"], "start", branch], pause=True)
+        elif pick == "diff":
+            run(["git", "-C", project["root"], "diff", f"{tip}...{rig}"])
+        elif pick == "watch":
+            folders = [state.get("worktree")] + [w["worktree"] for w in state.get("workers", [])]
+            run(["code", "-n", *[f for f in folders if f]])
+        elif pick == "land":
+            if confirm(f"Land {rig} on {state.get('base')}?"):
+                run(dev_loop(project, "close", "--merge" if local else "--push"), pause=True)
+        elif pick == "finish":
+            pr = ask("Pull request number: ")
+            if pr.isdigit():
+                run(dev_loop(project, "finish", pr), pause=True)
+        elif pick == "tasks":
+            tasks_menu(project)
+        elif pick == "tidy":
+            run(dev_loop(project, "tidy"), pause=False)
+            if confirm("Delete what is listed? Every ref is bundled first."):
+                run(dev_loop(project, "tidy", "--apply"), pause=True)
+        else:
+            run(tool("ai-work") + ["loop", project["id"], pick], pause=True)
+
+
+def worker_menu(project, state, worker, team):
+    i, branch, folder, seat = str(worker["issue"]), worker["branch"], Path(worker["worktree"]), worker.get("seat")
+    summary = folder / (".worker-blocked.md" if worker["state"] == "blocked" else ".worker-pr.md")
+    items = [("Show its diff", "diff")]
+    if summary.is_file():
+        items.append(("Read what it reported", "read"))
+    if seat:
+        items += [("Open its seat", "open"), ("Release its seat", "release")]
+    else:
+        items += [(f"Give it a seat in {team}", "seat"), ("Resume it in the background", "resume")]
+    items.append((f"Merge it up into {state['rig']}", "fold"))
+    while (pick := choose(f"#{i} {branch} · {worker['state']}", items,
+                          "Merging up checks the branch and releases its seat.")) is not None:
+        if pick == "diff":
+            run(["git", "-C", project["root"], "diff", f"{state['rig']}...{branch}"], pause=True)
+        elif pick == "read":
+            run(["cat", summary], pause=True)
+        elif pick == "open":
+            session = f"workers-issue-{i}@{seat}"
+            run(["tmux", "switch-client", "-t", session] if os.environ.get("TMUX") else ["tmux", "attach", "-t", session])
+        elif pick == "release":
+            run(tool("dev-workspace") + ["remove-worker", "--rig", seat, "--cwd", folder], pause=True)
+            return
+        elif pick == "seat":
+            if not team_running(team):
+                note(f"Start {team} first, under This project's team.")
+                continue
+            client = choose("Which agent?", [("Claude", "claude"), ("Codex", "codex")])
+            account = client and pick_account(client)
+            if account:
+                run(tool("dev-workspace") + ["add-worker", client, "--rig", team, "--cwd", folder, "--account", account],
+                    pause=True)
+                return
+        elif pick == "resume":
+            run(dev_loop(project, "resume", i), pause=True)
+            return
+        elif pick == "fold":
+            run(dev_loop(project, "fold", i), pause=True)
+            return
+
+
+def tasks_menu(project):
+    items = [("List the tasks on the base", "list"), ("Check the task files", "check"), ("Write a new task", "new")]
+    while (pick := choose(f"Tasks · {project['repo']}", items, "Tasks are docs/tasks/<N>-<slug>.md files.")) is not None:
+        if pick == "new":
+            title, scope = ask("Title: "), ask("Scope (path prefixes, comma separated): ")
+            if title and scope:
+                depends = ask("Depends on (#N, #M or none): ") or "none"
+                ready = ["--ready"] if confirm("Ready for a worker now?") else []
+                run(dev_loop(project, "tasks", "new", title, "--scope", scope, "--depends", depends, *ready),
+                    cwd=project["root"], pause=True)
+        else:
+            run(dev_loop(project, "tasks", pick), cwd=project["root"], pause=True)
+
+
+# Home -----------------------------------------------------------------------------------
+
+def engineer_menu():
+    """Engineer works on one project at a time, so the project comes first."""
+    items = [(f"{name(p)} · {p['repo']}", p) for p in catalog() if p["source"] == "repos.conf" and p["available"]]
+    project = choose("Engineer on which project?", items, "Engineer works in projects listed in repos.conf.")
+    if project:
+        role_menu("engineer", project)
+
+
+CURRENT = paths.install()
+
+
+def upgrade_if_released():
+    """A menu left open across an update would keep running the old code, and its layout
+    rules would fight the new ones. At the home screen, a safe point, it restarts itself
+    into the activated release."""
+    installed = CURRENT.resolve() / "bin/ai"
+    if not DRY and installed.is_file() and CURRENT.resolve() != ROOT:
+        os.execv(sys.executable, [sys.executable, str(installed)])
+
+
+def home():
+    here = project_for(Path.cwd())
+    while True:
+        upgrade_if_released()
+        items = [(f"This project: {name(here)}", lambda: project_menu(here))] if here else []
+        items += [("Start a new project", new_project),
+                  ("Projects", projects_menu), ("Recent sessions", lambda: sessions_menu(None)),
+                  ("Assistant, personal", lambda: role_menu("assistant")), ("Ops, this machine", lambda: role_menu("ops")),
+                  ("Engineer, on a project", engineer_menu),
+                  ("Teams", teams_menu), ("Accounts and setup", accounts_menu)]
+        bad = accounts.conflicts(os.environ)
+        hint = ("This shell carries provider overrides, so launches will refuse: " + ", ".join(bad)
+                if bad else None if keyboard() else "Enter goes back, q quits, text filters a list.")
+        pick = choose("AI environment", items, hint)
+        if pick is None:
+            return
+        pick()
+
+
+def main(argv):
+    if argv and argv[0] in ("-h", "--help"):
+        print(__doc__.strip())
+        return 0
+    clean_environment()
+    try:
+        projects_menu(" ".join(argv)) if argv else home()
+    except (Quit, KeyboardInterrupt):
+        print()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

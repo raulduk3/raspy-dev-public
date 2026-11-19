@@ -1,0 +1,79 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${DEV_PLATFORM_HOME:-/opt/dev-platform/current}/hooks/pre-tool-use-guard.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I ${DEV_PLATFORM_HOME:-/opt/dev-platform/current}/hooks/spec_guard.py"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${DEV_PLATFORM_HOME:-/opt/dev-platform/current}/hooks/post-tool-use-format.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${DEV_PLATFORM_HOME:-/opt/dev-platform/current}/hooks/stop-check.sh",
+            "timeout": 600
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${DEV_PLATFORM_HOME:-/opt/dev-platform/current}/hooks/session-length.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${DEV_PLATFORM_HOME:-/opt/dev-platform/current}/hooks/notify.sh",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${DEV_PLATFORM_HOME:-/opt/dev-platform/current}/hooks/notify.sh",
+            "timeout": 20
+          }
+        ]
+      }
+    ]
+  }
+}

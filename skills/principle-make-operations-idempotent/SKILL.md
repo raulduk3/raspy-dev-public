@@ -1,7 +1,10 @@
 ---
 name: principle-make-operations-idempotent
 description: "Apply when designing commands, lifecycle steps, or processing loops that run amid crashes, restarts, and retries. Converge to the same end state regardless of partial prior runs."
+disable-model-invocation: true
 ---
+
+> **On this platform.** This is pstack's `principle-make-operations-idempotent` skill (MIT, Lauren Tan; the unmodified source is in `vendor/pstack`). Read [the platform map](../../docs/pstack-platform.md) (installed: `/opt/dev-platform/current/docs/pstack-platform.md`) once per session: it says what the Cursor tools named here are on this machine, and which steps the guard hook leaves to the owner.
 
 # Make Operations Idempotent
 

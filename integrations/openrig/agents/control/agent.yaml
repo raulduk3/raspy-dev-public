@@ -1,0 +1,26 @@
+name: development-control
+version: "1.0"
+description: Owner-directed control surface for the existing development loop.
+# The lead holds the plan: when its context fills it hands over to a fresh successor
+# seat that starts from its recap (OpenRig handover); after a restart it resumes.
+defaults:
+  lifecycle:
+    execution_mode: interactive_resident
+    compaction_strategy: handover
+    restore_policy: resume_if_possible
+imports: []
+profiles:
+  default:
+    uses:
+      skills: []
+      guidance: [role]
+      subagents: []
+      plugins: []
+      runtime_resources: []
+resources:
+  guidance:
+    - id: role
+      path: guidance/role.md
+startup:
+  files: []
+  actions: []

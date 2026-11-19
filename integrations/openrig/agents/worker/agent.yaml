@@ -1,0 +1,25 @@
+name: development-worker
+version: "1.0"
+description: One development loop worker, in the worktree the loop cut for its issue.
+# One task, one worktree, one session: a worker starts fresh; its branch and task file carry it.
+defaults:
+  lifecycle:
+    execution_mode: interactive_resident
+    compaction_strategy: default-compaction
+    restore_policy: relaunch_fresh
+imports: []
+profiles:
+  default:
+    uses:
+      skills: []
+      guidance: [role]
+      subagents: []
+      plugins: []
+      runtime_resources: []
+resources:
+  guidance:
+    - id: role
+      path: guidance/role.md
+startup:
+  files: []
+  actions: []

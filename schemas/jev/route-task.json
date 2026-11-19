@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "name": "route-task",
+  "purpose": "Classify an incoming request for routing to the appropriate development-platform surface.",
+  "boundary": "Jev suggests a route from declared options only. Platform policy and the active role decide authority and execution.",
+  "questions": [
+    {
+      "id": "task_kind",
+      "type": "choice",
+      "question": "Which declared task kind best matches the request?",
+      "options": [
+        {"id": "answer_or_explain", "meaning": "Answer, explain, or catch up without editing."},
+        {"id": "engineering_change", "meaning": "Implement, refactor, test, or review code/docs in a project."},
+        {"id": "platform_operation", "meaning": "Operate sessions, accounts, rigs, teams, seats, or usage."},
+        {"id": "personal_or_admin", "meaning": "Personal coordination, journal, time, billing, or administrative help."},
+        {"id": "unclear", "meaning": "Insufficient information to route safely."}
+      ]
+    },
+    {
+      "id": "plan_first",
+      "type": "noul",
+      "question": "The request should be planned or scoped before editing files or launching workers."
+    }
+  ]
+}

@@ -1,7 +1,10 @@
 ---
 name: principle-minimize-reader-load
 description: "Apply when reviewing or shaping code that's hard to trace. Count layers between question and answer, and hidden state in the reader's head; collapse one-caller wrappers and shrink mutable scope."
+disable-model-invocation: true
 ---
+
+> **On this platform.** This is pstack's `principle-minimize-reader-load` skill (MIT, Lauren Tan; the unmodified source is in `vendor/pstack`). Read [the platform map](../../docs/pstack-platform.md) (installed: `/opt/dev-platform/current/docs/pstack-platform.md`) once per session: it says what the Cursor tools named here are on this machine, and which steps the guard hook leaves to the owner.
 
 # Minimize Reader Load
 

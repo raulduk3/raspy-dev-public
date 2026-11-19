@@ -28,8 +28,8 @@ You are answering a "why" question about a piece of code by synthesizing finding
 
 You MUST follow the framework in `references/epistemics.md`. Read it in full before writing the output. The key rules:
 
-1. Every claim sits in one of these tiers: **Direct**, **Corroborated**, **Inferred**, **Speculative**, **Unknown**. The tier determines what section the claim goes in and how it's phrased.
-2. Every Direct/Corroborated claim must have a citation (PR #, ticket ID, doc URL, chat permalink, commit hash, or file:line).
+1. Every claim sits in one of these tiers: **Direct**, **Supported**, **Inferred**, **Speculative**, **Unknown**. The tier determines what section the claim goes in and how it's phrased.
+2. Every Direct/Supported claim must have a citation (PR #, ticket ID, doc URL, chat permalink, commit hash, or file:line).
 3. Inferred and Speculative claims must use hedged language ("appears to", "likely", "suggests", "one possibility is").
 4. Never cite code as evidence for its own intent.
 5. Gaps in the evidence must be documented. Don't fill them with plausible-sounding guesses.
@@ -63,13 +63,13 @@ File paths, line ranges, key symbols. Two or three lines to orient a reader who 
 **Claims with direct evidence**, one per bullet. Quote or paraphrase the source and cite precisely. Format each finding like:
 
 - **[Direct]** {Claim}. Source: [PR #123](url) / ticket ID / file:line. {Brief quote or paraphrase.}
-- **[Corroborated]** {Claim}. Evidence: {list of items and what each contributes}.
+- **[Supported]** {Claim}. Evidence: {list of items and what each contributes}.
 
-Use `[Direct]` for single-source, explicit evidence. Use `[Corroborated]` when multiple indirect items converge on a conclusion.
+Use `[Direct]` for single-source, explicit evidence. Use `[Supported]` when multiple indirect items converge on a conclusion.
 
 ### What We Can Reasonably Infer
 
-**Claims that aren't explicitly stated anywhere but are well-corroborated by indirect evidence.** Make the inference chain visible: "Given A and B, it's likely that C." Use hedged language ("appears to", "likely", "suggests", "is consistent with"). Format:
+**Claims that aren't explicitly stated anywhere but are well-supported by indirect evidence.** Make the inference chain visible: "Given A and B, it's likely that C." Use hedged language ("appears to", "likely", "suggests", "is consistent with"). Format:
 
 - **[Inferred]** {Hedged claim}. Reasoning: {the specific evidence and the inference step}.
 
@@ -112,7 +112,7 @@ Bulleted list of what was actually searched, so the user can judge coverage and 
 
 One or two sentences summarizing your overall confidence. E.g.:
 
-> "The core rationale (A) is well-corroborated by direct PR and ticket evidence. The specific threshold value (100) is inferred from the surrounding context but not explicitly documented. The question of whether this was driven by a customer request could not be answered. No relevant issue tracker or long-form doc content surfaced, and real-time team chat search was unavailable."
+> "The core rationale (A) is well-supported by direct PR and ticket evidence. The specific threshold value (100) is inferred from the surrounding context but not explicitly documented. The question of whether this was driven by a customer request could not be answered. No relevant issue tracker or long-form doc content surfaced, and real-time team chat search was unavailable."
 
 ---
 

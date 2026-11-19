@@ -1,0 +1,50 @@
+# Codex execution rules. Installed as ~/.codex/rules/default.rules by runbooks/new-repo.md
+# (the sandbox default lives in ~/.codex/config.toml: sandbox_mode = "workspace-write").
+# Read-only and build commands are allowed without a prompt; anything that pushes to a protected
+# branch, merges, rewrites history, restarts a service or reaches a host is refused.
+# Codex cannot express per-repository rules, so develop pushes stay forbidden for Codex everywhere,
+# personal repositories included; Codex opens draft pull requests. The Claude Code guard in
+# hooks/pre-tool-use-guard.sh is the per-repository authority.
+# Codex 0.166.0 has PreToolUse hooks: hooks/codex-hooks.json runs that guard for each shell
+# command. These rules are the second layer. A prefix rule matches literal words from the start of
+# a command, so it cannot match `git -C <any dir>` or `+<any ref>`; the hook covers those.
+prefix_rule(pattern=["bun", "test"], decision="allow")
+prefix_rule(pattern=["bun", "run", "check"], decision="allow")
+prefix_rule(pattern=["bun", "run", "typecheck"], decision="allow")
+prefix_rule(pattern=["bun", "run", "lint"], decision="allow")
+prefix_rule(pattern=["bun", "run", "format:check"], decision="allow")
+prefix_rule(pattern=["bun", "install", "--frozen-lockfile"], decision="allow")
+prefix_rule(pattern=["git", "status"], decision="allow")
+prefix_rule(pattern=["git", "diff"], decision="allow")
+prefix_rule(pattern=["git", "log"], decision="allow")
+prefix_rule(pattern=["git", "fetch"], decision="allow")
+prefix_rule(pattern=["git", "push", "origin", ["develop", "main", "master"]], decision="forbidden")
+prefix_rule(pattern=["git", "push", "-u", "origin", ["develop", "main", "master"]], decision="forbidden")
+prefix_rule(pattern=["git", "push", "--set-upstream", "origin", ["develop", "main", "master"]], decision="forbidden")
+prefix_rule(pattern=["git", "push", "origin", ["HEAD:main", "HEAD:master", "HEAD:develop", "HEAD:refs/heads/main", "HEAD:refs/heads/master", "HEAD:refs/heads/develop"]], decision="forbidden")
+prefix_rule(pattern=["git", "push", "-u", "origin", ["HEAD:main", "HEAD:refs/heads/main", "HEAD:refs/heads/develop"]], decision="forbidden")
+prefix_rule(pattern=["git", "push", "origin", ["+main", "+master", "+develop", "+HEAD"]], decision="forbidden")
+prefix_rule(pattern=["git", "push", "origin", ["+HEAD:main", "+HEAD:refs/heads/main", "+HEAD:refs/heads/develop"]], decision="forbidden")
+prefix_rule(pattern=["git", "push", "--force-with-lease"], decision="forbidden")
+prefix_rule(pattern=["git", "push", "--no-verify"], decision="forbidden")
+prefix_rule(pattern=["git", "commit", "--no-verify"], decision="forbidden")
+prefix_rule(pattern=["git", "commit", "-n"], decision="forbidden")
+prefix_rule(pattern=["git", "branch", ["-D", "-df", "-fd"]], decision="forbidden")
+prefix_rule(pattern=["git", "worktree", "remove"], decision="forbidden")
+prefix_rule(pattern=["git", "clean"], decision="forbidden")
+prefix_rule(pattern=["gh", "api", "-X", "PUT"], decision="forbidden")
+prefix_rule(pattern=["gh", "api", "--method", "PUT"], decision="forbidden")
+prefix_rule(pattern=["git", "push", "--force"], decision="forbidden")
+prefix_rule(pattern=["git", "push", "-f"], decision="forbidden")
+prefix_rule(pattern=["git", "rebase"], decision="forbidden")
+prefix_rule(pattern=["git", "reset", "--hard"], decision="forbidden")
+prefix_rule(pattern=["git", "commit", "--amend"], decision="forbidden")
+prefix_rule(pattern=["gh", "pr", "merge"], decision="forbidden")
+prefix_rule(pattern=["gh", "pr", "ready"], decision="forbidden")
+prefix_rule(pattern=["docker", "compose", "up"], decision="forbidden")
+prefix_rule(pattern=["docker", "compose", "restart"], decision="forbidden")
+prefix_rule(pattern=["docker", "compose", "down"], decision="forbidden")
+prefix_rule(pattern=["docker", "restart"], decision="forbidden")
+prefix_rule(pattern=["docker", "stop"], decision="forbidden")
+prefix_rule(pattern=["systemctl", "restart"], decision="forbidden")
+prefix_rule(pattern=["ssh", "root@"], decision="forbidden")

@@ -1,13 +1,16 @@
 ---
 name: principle-type-system-discipline
 description: "Apply when designing types, reviewing a function signature, or writing code in any statically-typed language. Make illegal states unrepresentable, brand semantic primitives, parse external data at boundaries, refuse to lie to the compiler, exhaust variants, derive from authoritative schemas."
+disable-model-invocation: true
 ---
+
+> **On this platform.** This is pstack's `principle-type-system-discipline` skill (MIT, Lauren Tan; the unmodified source is in `vendor/pstack`). Read [the platform map](../../docs/pstack-platform.md) (installed: `/opt/dev-platform/current/docs/pstack-platform.md`) once per session: it says what the Cursor tools named here are on this machine, and which steps the guard hook leaves to the owner.
 
 # Type System Discipline
 
 The type checker is a proof assistant. Use it to eliminate impossible states, mismatched primitives, and unhandled variants at compile time. A case the types let you ignore becomes a runtime failure the compiler could have stopped. Prefer defining errors and special cases out of existence over proliferating handlers. Unrepresentable states, total functions, and interface redesign (the patterns below) are the tools.
 
-Applies to any typed language. Language-specific style guides ground it in specific syntax.
+Applies to any typed language. Skills like `typescript-best-practices` ground it in specific syntax.
 
 **The patterns:**
 

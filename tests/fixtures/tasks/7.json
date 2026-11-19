@@ -1,0 +1,34 @@
+{
+  "$schema": "../../../schemas/task/v1.schema.json",
+  "schema": "dev-platform/task@1",
+  "id": 7,
+  "title": "Import the federal efficiency minimums",
+  "kind": "data",
+  "goal": "G-1",
+  "state": "blocked",
+  "brief": "The federal efficiency minimums are not in the facts. Import them from the agency file when it is published, so Learn can cite them.",
+  "work": {
+    "source": "agency CSV 2026",
+    "target": "facts/minimums.json",
+    "transform": [
+      "Keep residential rows.",
+      "Convert the old unit to the new unit."
+    ]
+  },
+  "acceptance": [
+    {
+      "by": "eval",
+      "statement": "Every record matches the source.",
+      "run": "bun run facts:verify",
+      "metric": "match_rate",
+      "op": ">=",
+      "value": 1.0
+    }
+  ],
+  "created": "2026-11-12",
+  "blocked": {
+    "reason": "The 2026 CSV is not published yet.",
+    "needs": "input",
+    "since": "2026-11-12"
+  }
+}

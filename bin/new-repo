@@ -1,55 +1,173 @@
 #!/usr/bin/env bash
-# new-repo <directory> [--github <owner>/<name> [--public]]
-# Start a repository from templates/: instructions, policy, empty specification, task folder,
-# the check and its hygiene rules. Commits on main. Every agent's instruction file is a link to
-# AGENTS.md (the names come from contexts/*/instruction-files). With --github it also creates
-# the GitHub repository (private unless --public), pushes main and protects it with
-# github/ruleset-main.json. Without it nothing leaves the machine.
+# Initialize a repository to the standard from this platform's templates.
+#
+#   bin/new-repo <directory> [--owner <login>] [--register [--personal]] [--tier N]
+#                [--github <owner>/<name>] [--private|--public]
+#
+# Copies templates/ into the directory, writes minimal language-neutral project files
+# (.gitignore, README stub), commits on main, tags v0.1.0 so the version derives,
+# and writes the source control tier into AGENTS.md. Tiers 1, 2 and 4 have main and release tags
+# only (--tier defaults to 2 with --personal, else 3). Tier 3 also gets a develop branch. When --github names a repository, creates it with gh, pushes both
+# branches and applies the rulesets under github/rulesets/. Without --github nothing leaves the
+# machine: the repository is local, its tasks are files in docs/tasks/, and the loop merges each
+# goal's rig branch back locally. It is left on main (tiers 1, 2 and 4) or develop (tier 3).
+# --register adds it to repos.conf with tier=N and a tracker (files when local, github with
+# --github) so Engineer, the team and the loop can find it. Exit 0 on success.
 set -euo pipefail
-here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
-usage() { sed -n '2,8p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 
-directory="" github="" visibility=--private
+# Resolve the link in ~/.local/bin so templates are found in the release, not beside the link.
+PLATFORM="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+TEMPLATES="$PLATFORM/templates"
+RULESETS="$PLATFORM/github/rulesets"
+
+usage() { sed -n '2,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2; }
+
+directory=""
+owner=""
+github=""
+visibility="--private"
+register=0
+personal=0
+tier=""
 while [ $# -gt 0 ]; do
   case "$1" in
+    --owner) owner="${2:?--owner needs a login}"; shift 2 ;;
     --github) github="${2:?--github needs owner/name}"; shift 2 ;;
-    --public) visibility=--public; shift ;;
+    --private|--public) visibility="$1"; shift ;;
+    --register) register=1; shift ;;
+    --personal) personal=1; shift ;;
+    --tier) tier="${2:?--tier needs a number from 1 to 4}"; shift 2 ;;
     -h|--help) usage ;;
     -*) echo "new-repo: unknown option $1" >&2; usage ;;
     *) [ -z "$directory" ] || usage; directory="$1"; shift ;;
   esac
 done
 [ -n "$directory" ] || usage
-if [ -n "$(ls -A "$directory" 2>/dev/null)" ]; then
-  echo "new-repo: $directory exists and is not empty" >&2; exit 2
+if [ -z "$tier" ]; then
+  if [ "$personal" = 1 ]; then tier=2; else tier=3; fi
 fi
-mkdir -p "$directory"
-cp -R "$here/templates/." "$directory/"
-cd "$directory"
-name="$(basename "$PWD")"
-owner="${github%%/*}"
-[ -n "$owner" ] || owner="$(gh api user --jq .login 2>/dev/null || echo OWNER)"
-sed "s/@OWNER/@$owner/" .github/CODEOWNERS > .github/CODEOWNERS.new && mv .github/CODEOWNERS.new .github/CODEOWNERS
-cat "$here"/contexts/*/instruction-files 2>/dev/null | grep -v '^#' | sort -u | while read -r file; do
-  [ -n "$file" ] && [ ! -e "$file" ] && ln -s AGENTS.md "$file"
-done
-printf '.DS_Store\n.env\n.env.*\n!.env.example\n*.log\nworktrees/\n.worker-*\n' > .gitignore
-printf '# %s\n\nWhat this repository is and how to use it.\n\n- Check: `scripts/check`\n- Instructions: [AGENTS.md](AGENTS.md); policy: [CONTRIBUTING.md](CONTRIBUTING.md)\n' "$name" > README.md
+case "$tier" in 1|2|3|4) ;; *) echo "new-repo: --tier must be 1, 2, 3 or 4" >&2; exit 2 ;; esac
+if [ "$tier" = 3 ]; then base=develop; else base=main; fi
+if [ -z "$owner" ]; then
+  owner="${github%%/*}"
+  [ -n "$owner" ] && [ "$owner" != "$github" ] || owner="$(gh api user --jq .login 2>/dev/null || true)"
+fi
+[ -n "$owner" ] || { echo "new-repo: --owner is required when gh is not logged in" >&2; exit 2; }
+if [ -e "$directory" ] && [ -n "$(ls -A "$directory" 2>/dev/null)" ]; then
+  echo "new-repo: $directory exists and is not empty" >&2
+  exit 2
+fi
+name="$(basename "$directory")"
 
+mkdir -p "$directory"
+cp -R "$TEMPLATES/." "$directory/"
+sed -i '' "s/@OWNER/@$owner/" "$directory/.github/CODEOWNERS" 2>/dev/null || sed -i "s/@OWNER/@$owner/" "$directory/.github/CODEOWNERS"
+mkdir -p "$directory/src" "$directory/tests/checks"
+
+sedi() { sed -i "" "$@" 2>/dev/null || sed -i "$@"; }
+sedi "s/@TIER@/$tier/" "$directory/AGENTS.md"
+if [ "$tier" != 3 ]; then
+  # Tiers 1, 2 and 4 have main and release tags only: no develop branch in the text or in the CI.
+  sedi '/^- One change, one branch cut from `develop`/c\- One goal, one branch cut from `main` (none at tier 1: work on `main`). Branch name `type/short-description`. The owner lands it. See the tier line above.' "$directory/AGENTS.md"
+  sedi 's/^- Push to `develop` or `main`\./- Push to `main`, unless the tier line above allows it./' "$directory/AGENTS.md"
+  sedi '/^1\. \*\*One change, one branch, one PR\.\*\*/c\1. **One goal, one branch.** Cut one goal branch from `main` named `type/short-description` (tier 1: work on `main`). The owner lands it. No stacked branches. Goal branches are deleted after the land.' "$directory/CONTRIBUTING.md"
+  sedi 's/`develop`/`main`/g; s/(a merge of develop)/(a landed goal)/' "$directory/CONTRIBUTING.md" "$directory/docs/VERSIONING.md" \
+    "$directory/docs/tasks/README.md" "$directory/.github/workflows/release.yml"
+  sedi '/^      - develop$/d; s/into develop and main/into main/' "$directory/.github/workflows/checks.yml"
+  sedi 's/target-branch: "develop"/target-branch: "main"/; s/`develop`/`main`/g' "$directory/.github/dependabot.yml"
+  sedi 's/origin\/develop/origin\/main/g' "$directory/scripts/checks/hygiene.py"
+fi
+
+cat > "$directory/.gitignore" <<'TXT'
+.DS_Store
+.env
+.env.*
+!.env.example
+.cache/
+build/
+coverage/
+dist/
+out/
+*.log
+.claude/worktrees/
+TXT
+cat > "$directory/README.md" <<MD
+# $name
+
+What this repository contains, how to use it, and where the contracts are. Written in the first pull request.
+
+\`\`\`sh
+scripts/check
+python3 scripts/version.py
+\`\`\`
+
+- Working policy: [CONTRIBUTING.md](CONTRIBUTING.md); contributor instructions: [AGENTS.md](AGENTS.md).
+- Versioning: [docs/VERSIONING.md](docs/VERSIONING.md).
+- Accepted decisions: [docs/decisions/](docs/decisions/).
+MD
+cat > "$directory/tests/checks/test_hygiene.py" <<'PY'
+import importlib.util
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+spec = importlib.util.spec_from_file_location("hygiene", ROOT / "scripts/checks/hygiene.py")
+hygiene = importlib.util.module_from_spec(spec)
+sys.modules["hygiene"] = hygiene
+spec.loader.exec_module(hygiene)
+
+
+def test_counterexample_commit_subject_is_rejected():
+    assert [f.code for f in hygiene.check_message("abcdef0", "Add the thing")] == ["subject-format"]
+    assert hygiene.check_message("abcdef0", "feat(repo): add the thing") == []
+PY
+
+cd "$directory"
 git init -q -b main
 git add -A
-git commit -q -m "chore(repo): start from the template"
-scripts/check >/dev/null
-echo "new-repo: $PWD on main; check passes"
+git commit -q -m "chore(repo): initialize to the standard"
+git tag -a v0.1.0 -m "initial version" -q 2>/dev/null || git tag -a v0.1.0 -m "initial version"
+if [ "$base" = develop ]; then
+  git branch develop
+  git checkout -q develop
+fi
+# Prove the skeleton can derive a version. Project-specific checks may be added later in scripts/check-local.
+python3 scripts/version.py >/dev/null
+echo "new-repo: $directory initialized on main (tagged v0.1.0), tier $tier, on $base"
 
 if [ -n "$github" ]; then
-  gh repo create "$github" "$visibility" --source=. --remote=origin >/dev/null
-  ALLOW_PROTECTED=1 git push -q -u origin main
-  gh api -X PATCH "repos/$github" -F delete_branch_on_merge=true >/dev/null
-  if gh api -X POST "repos/$github/rulesets" --input github/ruleset-main.json >/dev/null 2>&1; then
-    echo "new-repo: main is protected"
+  gh repo create "$github" "$visibility" --source=. --remote=origin --description "$name" >/dev/null
+  git push -q -u origin main
+  [ "$base" != develop ] || git push -q -u origin develop
+  gh api -X PATCH "repos/$github" -f default_branch="$base" -F allow_squash_merge=false -F allow_rebase_merge=false -F delete_branch_on_merge=true >/dev/null
+  rulesets=main; [ "$base" != develop ] || rulesets="develop main"
+  for ruleset in $rulesets; do
+    if gh api -X POST "repos/$github/rulesets" --input "$RULESETS/$ruleset.json" >/dev/null 2>&1; then
+      echo "new-repo: ruleset $ruleset applied"
+    else
+      echo "new-repo: ruleset $ruleset NOT applied (the plan may not allow rulesets on a private repository); apply it later with: gh api -X POST repos/$github/rulesets --input $RULESETS/$ruleset.json" >&2
+    fi
+  done
+  echo "new-repo: https://github.com/$github created; default branch $base"
+fi
+
+root="$(pwd -P)"
+mode=local; [ -z "$github" ] || mode=owner
+tracker=files; [ -z "$github" ] || tracker=github
+tasks=md; [ "$personal" = 0 ] || tasks=json   # decision 0002: owned repositories keep typed JSON tasks
+line="$(printf '%s %s %s %s tier=%s tracker=%s tasks=%s' "${github:-$owner/$name}" "$root" "$mode" "$base" "$tier" "$tracker" "$tasks")"
+repos_conf="${DEV_PLATFORM_REPOS:-$HOME/.config/dev-platform/repos.conf}"
+if [ "$register" = 1 ]; then
+  mkdir -p "$(dirname "$repos_conf")"
+  if awk -v r="${github:-$owner/$name}" '$1==r {found=1} END {exit !found}' "$repos_conf" 2>/dev/null; then
+    echo "new-repo: ${github:-$owner/$name} is already in $repos_conf; left unchanged" >&2
   else
-    echo "new-repo: ruleset NOT applied (private repositories need a paid plan); later: gh api -X POST repos/$github/rulesets --input github/ruleset-main.json" >&2
+    printf '%s\n' "$line" >> "$repos_conf"; echo "new-repo: registered in $repos_conf as $mode"
   fi
-  echo "new-repo: https://github.com/$github"
+elif awk -v p="$root" '$2==p {found=1} END {exit !found}' "$repos_conf" 2>/dev/null; then
+  echo "new-repo: already listed in $repos_conf"
+else
+  echo "new-repo: to plan and build it with Engineer and the loop, add this line to $repos_conf:"
+  printf '  %s\n' "$line"
+  echo "new-repo: new-repo --register writes this line next time"
 fi

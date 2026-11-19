@@ -1,0 +1,17 @@
+{
+  "_comment": "Codex pre-tool hook for shell commands. Checked against codex-cli 0.166.0 (feature `hooks` is stable and on; the PreToolUse event exists in its schema). The file has the shape of ~/.codex/hooks.json. Merge the PreToolUse entry into that file by hand; the platform does not edit ~/.codex. Exit code 2 from the guard blocks the command, as in Claude Code. The matcher lists the shell tool names that Codex builds use. hooks/codex.rules stays as the second layer.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|shell|local_shell|shell_command|exec_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${DEV_PLATFORM_HOME:-/opt/dev-platform/current}/hooks/pre-tool-use-guard.sh",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

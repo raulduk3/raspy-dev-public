@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Offline regression suite. Tests isolate HOME, Git config, remotes and all platform state.
+set -euo pipefail
+# The regression suite must never spend paid Jev calls through hook subprocesses.
+export DEV_PLATFORM_JEV_GUARD=0
+export OL_SECRET_LAUNCH_ONLY=1   # tests never ask root's helper for a real key
+export DEV_PLATFORM_ACCOUNTS_TEMPLATE="$(cd "$(dirname "$0")/.." && pwd)/tests/support/accounts.json"   # tests use a fixed account list, not the live one
+export OL_ACCOUNTS_STATE=/nonexistent/accounts   # nor the machine's live registry: the fixed list stands in
+export DEV_PLATFORM_ACCOUNT_SELECTION=/nonexistent/account-selection.json   # nor the owner's saved selection
+root="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+cd "$root"
+for command in bash git python3 jq; do
+  command -v "$command" >/dev/null || { echo "check: missing $command" >&2; exit 2; }
+done
+python3 -c 'import yaml' 2>/dev/null || { echo "check: missing PyYAML (python3 -m pip install pyyaml)" >&2; exit 2; }
+# An activated release is a git archive, not a repository: list its files instead.
+scripts() {
+  if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    git ls-files '*.sh' skills/loop/scripts/ghx bin/new-repo
+  else
+    find . -name '*.sh' -not -path './integrations/pi/node_modules/*' | sed 's#^\./##'
+    printf '%s\n' skills/loop/scripts/ghx bin/new-repo
+  fi
+}
+while IFS= read -r script; do bash -n "$script"; done < <(scripts)
+# CHECK_JUNIT=<file>: the same tests in the same environment, with a JUnit report for the specification tree
+# (dev-spec test, docs/spec/tree.json). The tests need the isolation that this script exports.
+if [ -n "${CHECK_JUNIT:-}" ]; then
+  PYTHONDONTWRITEBYTECODE=1 python3 tests/support/junit_run.py "$CHECK_JUNIT"
+else
+  PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_*.py' -v
+fi

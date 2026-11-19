@@ -1,19 +1,54 @@
 #!/usr/bin/env bash
-# Global pre-commit (core.hooksPath): no secrets in a commit. Uses gitleaks when installed, and
-# a short pattern list otherwise, so it never passes for want of a scanner. Matches are reported
-# by file and line, never printed. Then runs the repository's own pre-commit hook, if any.
-set -euo pipefail
-if command -v gitleaks >/dev/null; then
-  gitleaks git --pre-commit --staged --redact --no-banner --log-level warn ||
-    { echo "pre-commit: gitleaks found a secret in the staged changes" >&2; exit 1; }
-else
-  patterns='-----BEGIN [A-Z ]*PRIVATE KEY-----|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{40,}|sk-[A-Za-z0-9_-]{32,}|xox[abprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{35}|(api[_-]?key|secret|token|passw(or)?d)["'\'']?[[:space:]]*[:=][[:space:]]*["'\''][^"'\'' ]{16,}'
-  hits="$(git diff --cached -U0 --no-color --no-ext-diff | awk '
-    /^\+\+\+ / { file = substr($0, 7); next } /^@@/ { split($3, a, ","); line = a[1] + 0; next }
-    /^\+/ { print file ":" line "\t" substr($0, 2); line++ }' | grep -E "	.*($patterns)" | cut -f1 || true)"
-  if [ -n "$hits" ]; then
-    printf 'pre-commit: possible secret at\n%s\n' "$hits" >&2; exit 1
+# Global git pre-commit hook (core.hooksPath), for every local interface: Claude Code, Codex, Pi,
+# Zed and a plain terminal.
+#
+# In a repository whose repos.conf line has decisions=frozen (lib/ai_ecosystem/tiers.py), it
+# refuses a commit that adds, changes, renames or deletes a file under docs/decisions/, or that
+# adds a file named SPEC-AMENDMENTS.md. Agents edit the specification directly; git records it.
+# Where the control of the specification is on for the project, it refuses a specification change that no
+# dev-spec command made. Then it runs the repository's own pre-commit hook, so a global hooksPath does not turn it off.
+set -u
+here="$(dirname "$(readlink -f "$0")")"
+
+chain() {
+  local common hook
+  common="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || exit 0
+  hook="$common/hooks/pre-commit"
+  if [ -x "$hook" ] && [ -f "$hook" ]; then
+    exec "$hook" "$@"
+  fi
+  exit 0
+}
+
+decisions=open
+tiers_py="$here/../../lib/ai_ecosystem/tiers.py"
+if [ -f "$tiers_py" ]; then
+  top="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE git rev-parse --show-toplevel 2>/dev/null || pwd)"
+  found="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE python3 -I "$tiers_py" --field decisions "$top" 2>/dev/null || true)"
+  [ "$found" = frozen ] && decisions=frozen
+  # Where the project record turns the Git rules off, this hook applies no Git rule (SDD-PJ-04). The control of
+  # the specification is a different part: its check below still runs.
+  off="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE python3 -I "$tiers_py" --field off "$top" 2>/dev/null || true)"
+  case ",$off," in *,git,*) decisions=open ;; esac
+fi
+
+if [ "$decisions" = frozen ]; then
+  touched="$(git diff --cached --no-renames --name-only -- docs/decisions 2>/dev/null)"
+  ledger="$(git diff --cached --no-renames --name-only --diff-filter=A 2>/dev/null | grep -E '(^|/)SPEC-AMENDMENTS\.md$' || true)"
+  if [ -n "$touched$ledger" ]; then
+    printf 'dev-platform pre-commit: this repository has decisions=frozen: decision records are read-only history\n' >&2
+    printf '%s\n' $touched $ledger | head -10 | sed 's/^/  /' >&2
+    printf 'dev-platform pre-commit: edit docs/spec/<domain>/sdd.md and tdd.md directly; unstage these paths (git restore --staged <path>)\n' >&2
+    exit 1
   fi
 fi
-own="$(git rev-parse --git-common-dir)/hooks/pre-commit"   # the repository's own, not this one
-[ ! -x "$own" ] || exec "$own" "$@"
+
+# A controlled specification (docs/spec/SDD.md, area SW): refuse specification content that no dev-spec command
+# recorded, and a commit while an item that must change also is open. A repository with no project, or with the
+# control off, passes. The index of this commit stays in the environment.
+spec_cli="$here/../../bin/dev-spec"
+if [ -x "$spec_cli" ]; then
+  "$spec_cli" staged || exit 1
+fi
+
+chain "$@"

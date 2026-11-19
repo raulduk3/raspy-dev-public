@@ -21,7 +21,7 @@ Reviewers, especially adversarial ones, tend to fill their review. If they don't
 
 ### Hypothetical vs. Actual
 
-"What if someone passes null here?" is only a finding if the caller can actually pass null. Trace the call site. If the input is validated earlier in the call chain or the type system prevents it, dismiss the finding. Reviewers working from a diff can't always see the full call chain. You can.
+"What if someone passes null here?" is only a finding if the caller can actually pass null. Trace the call site. If the input is validated upstream or the type system prevents it, dismiss the finding. Reviewers working from a diff can't always see the full call chain. You can.
 
 ### Premature Abstraction Warnings
 

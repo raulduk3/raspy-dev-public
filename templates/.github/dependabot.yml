@@ -1,11 +1,16 @@
-# Dependency updates. Add the project's ecosystems here when it adopts them. Pull requests go
-# through the same check and review as any other change.
+# Dependency updates for the repository skeleton. Add language/runtime ecosystems here when the
+# project adopts them. Pull requests target `develop` and go through the same checks and review as
+# any other change.
 version: 2
 updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    target-branch: "develop"
     open-pull-requests-limit: 5
     commit-message:
       prefix: "ci(deps)"

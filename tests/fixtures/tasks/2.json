@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../schemas/task/v1.schema.json",
+  "schema": "dev-platform/task@1",
+  "id": 2,
+  "title": "Add the visit rule to the SDD",
+  "kind": "spec",
+  "goal": "G-1",
+  "state": "ready",
+  "brief": "The SDD has no rule for how a price line names its visit. Add requirement P10.338 so the code and the tests have one source.",
+  "work": {
+    "scope": [
+      "docs/spec/"
+    ],
+    "changes": [
+      "Add requirement P10.338."
+    ]
+  },
+  "acceptance": [
+    {
+      "by": "review",
+      "statement": "The owner accepts the new line.",
+      "reviewer": "owner"
+    }
+  ],
+  "created": "2026-11-12"
+}
