@@ -196,8 +196,8 @@ Claude and Codex sessions use their own built-in web search, not Perplexity. The
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| Daemon dies at start with `ERR_DLOPEN_FAILED` | Wrong Node on PATH | Start it through `dev-workspace` or `bin/rig`, which use the pinned Node 24 |
-| A new seat sits on "Connection refused, retrying" | Inherited dead proxy URL | `ai-env doctor` shows it; `dev-workspace start` removes it; or `tmux set-environment -g -u ANTHROPIC_BASE_URL` |
+| Daemon stops at start with `ERR_DLOPEN_FAILED` | Wrong Node on PATH | Start it through `dev-workspace` or `bin/rig`, which use the pinned Node 24 |
+| A new seat sits on "Connection refused, retrying" | Inherited stale proxy URL | `ai-env doctor` shows it; `dev-workspace start` removes it; or `tmux set-environment -g -u ANTHROPIC_BASE_URL` |
 | A seat times out after 30 seconds, never interactive | Claude's first-run Chrome dialog in a fresh home | `bootstrap.sh` records the answer in each agent's `~/.claude.json`; rerun it |
 | `ai-account status` says every account is unverified | Run from inside a Claude desktop session, which sets a provider variable | Run it from a plain terminal |
 | A Codex seat shows "needs attention" but works | The foreground-process check, see Known limits | Ignore, or report upstream |

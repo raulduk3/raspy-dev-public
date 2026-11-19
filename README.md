@@ -4,152 +4,87 @@
 
 <h1 align="center">raspy-dev</h1>
 
-<p align="center"><em>One small cockpit for many AI tools. Say what you want; watch a team build it on one branch; land it yourself.</em></p>
-
-A small personal development platform for keeping AI-assisted software work organized, bounded, and reviewable.
-
-raspy-dev is not a framework, a product, or a replacement for GitHub. It is the local glue around my editor, terminal, coding agents, repository templates, checks, native-account selection, sessions, rig seats, and project workflow. Every tool can help, git holds the truth, and a human remains the release authority. Everything runs locally; GitHub is opt-in per repository.
-
-## What it connects
-
-raspy-dev instruments the whole local developer stack:
-
-- **Git and GitHub**: issues, pull requests, branch protections, rulesets, release lanes.
-- **Herdr**: a cockpit view for spaces, projects, tabs, rig panes and active work.
-- **OpenRig**: native project/control surface, rig seats, team spaces and seat handoff.
-- **VS Code, Claude Code, Codex**: editor and agent hooks, stop checks, formatting, refusals.
-- **Pi roles** (Assistant, Ops, Engineer): role-specific assistants under the same platform contracts.
-- **Native account/profile controls**: explicit account selection and quota snapshots.
-- **Bun, Node, Python, uv, gh, git, jq, prettier**: the ordinary local toolchain. On dev-server (Arch Linux ARM) `~/dev/dev-server/bootstrap.sh` installs it in its "dev-platform toolchain" step.
-- **Laya**: optional local decision/probe service diagnostics through `ai-env doctor`.
-- **Jev**: optional bounded classifier adapter through `ai-jev` and `schemas/jev/`, used only for closed routing, ranking, verification and escalation decisions.
-
-Each tool keeps its native UX. raspy-dev supplies the common rules, scripts, templates, adapters and handoff language.
-
-## The shape of the system
+<p align="center"><em>Paste this into your agent to figure out what you might want from this system.</em></p>
 
 ```text
-owner goal
-  -> decision, spec and task files (or GitHub issues, where a repository opts in)
-  -> a goal branch, and a child branch per task in its own worktree
-  -> Herdr / OpenRig / VS Code / Claude Code / Codex / Pi
-  -> skills pick the lane and hydrate the surface
-  -> checks and guardrails
-  -> pull request, artifact, review finding, decision record or handoff
-  -> human review, merge, tag, deploy
+Read the repository at <the address of this page>. Start at README.md and do what
+the section "Prompt for the agent" tells you. Then tell me what I might want from
+this system.
 ```
 
-The important rule is that there is one ledger. Chats, agents, desktop apps, rig seats and terminals are work surfaces. Git is the durable record: branches, commits, task files and decision records, with GitHub issues and pull requests where a repository uses them.
+The rest of this page is for the agent.
 
-## Filesystem layout
+## Prompt for the agent
 
-The repo expects a normal local layout but does not require secrets in the repository.
-On dev-server one install serves the owner and every agent user (`lib/ai_ecosystem/paths.py`):
+You are an AI agent. A person asked you to read this repository and to say what the person can use from it. Read this prompt fully before you open other files.
 
-```text
-~/dev/dev-platform             the owner's working checkout (DEV_PLATFORM_CHECKOUT)
+### What this repository is
 
-/opt/dev-platform/             root-owned, world-readable (DEV_PLATFORM_SHARE)
-  repo.git                     mirror of the checkout that releases are built from
-  releases/<commit>/           `ai-release activate` output: git archive of one commit
-  current -> releases/<commit> what everyone runs (DEV_PLATFORM_HOME)
-  pi-runtime/<version>/        the pinned Pi package and /goal, from integrations/pi's lockfile
-  openrig-runtime/             the pinned OpenRig runtime and its Node
+raspy-dev is the platform that one person uses for software work with AI agents on one Linux machine. It is the layer around an editor, a terminal and the coding agents Claude Code, Codex and Pi. It holds commands, hooks, skills, templates, checks and documents. It is not a framework and it is not a product.
 
-/usr/local/bin/<command>       links into /opt/dev-platform/current/bin (and dev-loop, ghx)
+Three rules apply in all parts:
 
-A release (and the checkout) holds:
-  bin/                         CLI entrypoints
-  docs/                        platform contracts
-  github/rulesets/             branch ruleset JSON
-  hooks/                       Claude Code, Codex, check and formatting hooks
-  integrations/openrig/        OpenRig seat configuration
-  lib/ai_ecosystem/            session, account, workspace and environment adapters
-  runbooks/                    manual procedures
-  skills/                      reusable agent/operator procedures
-  templates/                   files copied into new repositories
-  tests/                       offline tests for the platform itself
-  vscode/                      VS Code instructions and settings snippets
+- Git is the one record. Chats, agents and terminals are places of work. They are not records.
+- Each agent works in a bounded place: one task, one worktree, one check.
+- A person decides, reviews and releases. In a shared repository, only the person puts a finished goal on the base branch.
 
-~/.config/dev-platform/
-  repos.conf                   repository map: owner/repo, checkout, identity, base
-  personal.conf                local-only list of personal repositories
-  account-selection.json       local-only choice of account for each runtime
-  env.d/                       local-only environment settings
-  ste100                       the writing standard that the global instruction files include
+### What this copy is
 
-~/.local/state/dev-platform/
-  loop/                        local development-loop ledger
-  sessions/                    reconstructed session index
-  workspace/                   generated OpenRig project catalog
-```
+- This is the public copy of a private repository. Generic words replace the names of people, machines and clients: `the owner`, `dev-server`, `laptop`, `git-host`, `Acme`, `Globex`. The three agent roles have the names `Engineer`, `Ops` and `Assistant`.
+- Some parts are not in this copy: the machine setup (the documents call it `~/dev/dev-server`, with its users, units and `bootstrap.sh`), the sign-in helper `ol-login`, the decision records and the task files of the platform. Text that points to these parts has no target here.
+- This copy has no installer. The documents describe one machine (Arch Linux ARM) with a shared release in `/opt/dev-platform`. Read each path, user name and host name as an example.
+- `vendor/pstack` is a copy of a third-party project (MIT, Lauren Tan). It has its own license.
 
-Scratch files and helper scripts belong in a project worktree or project artifact directory, not on the Desktop. The hooks enforce that for common cases.
+### How to read it
 
-## What is in this repository
+1. Read `docs/how-it-connects.md`. It is the map of the full system.
+2. Read `ROLES.md` and `MODELS.md`. They say which surface and which model tier does which work.
+3. Read `docs/source-control.md`. It gives the tiers, the branches and the rules for landing.
+4. Then open only the parts that fit the person. Use the table below.
 
-- `bin/ai`: the menu over everything here: projects, sessions, roles, teams and accounts. It hands off to the commands below and keeps no state of its own.
-- `bin/new-repo`: initializes a repository with the standard templates and branch rules.
-- `bin/ai-session`: indexes native AI sessions without copying message bodies.
-- `bin/ai-account`: verifies native account/profile selection and quota snapshots for new CLI launches.
-- `bin/ai-work`: lists projects/sessions and forwards loop commands to the existing ledger.
-- `bin/dev-workspace`: starts or plans native OpenRig control seats safely.
-- `bin/rig-shape` and `skills/setup-rig`: shape a project's team (`build`, `review`, `solo`), validated by OpenRig and recorded in the team folder's history (`~/dev/teams/<team>`).
-- `bin/ai-env`: read-only diagnostics for local tools, skills and optional services.
-- `bin/ai-release`: builds a commit into `/opt/dev-platform/releases/<commit>` with `git archive`, activates it, and verifies that the activated release still matches its commit.
-- `bin/ai-jev`: thin adapter for Jev-style bounded classification schemas; it validates typed JSON, keeps planning/writing/authority in the platform/agents/human, and disables live calls at the configured monthly spend cap.
-- `hooks/`: command guards, stop checks, one-shot check caching, post-edit formatting.
-- `skills/loop`: work toward a goal on one branch: dispatch workers, merge each finished child up, land the goal once.
-- `skills/dev-plat` and the other pstack skills: the engineering method, ported from [pstack](https://github.com/cursor/plugins/tree/main/pstack) (MIT, Lauren Tan).
-- `skills/intake` and `skills/distill`: turn a goal or external notes into decisions, spec and task files, without copying private source into repos.
-- `templates/`: the repository standard: AGENTS, CONTRIBUTING, pull request template, hygiene checks, specs, release/check workflows.
-- `docs/how-it-connects.md`: the map of the whole setup for the person using it. Start there.
-- `docs/rig-working-branches.md`: the control rig, one worker seat per loop worktree and a Codex overseer.
-- `docs/session-index.md`, `docs/session-naming.md`, `docs/development-workspace.md`, `docs/skills-layer.md` and `docs/pstack-platform.md`: the contracts for the local ecosystem.
-- `ROLES.md`: which surface should do which kind of work.
-- `MODELS.md`: which model tier should do which kind of work.
+Read the files. Do not run a command from this repository, do not install anything and do not change the machine of the person, unless the person tells you to. The test command `bin/check` needs `jq` 1.8 and a pinned Pi runtime. On a machine without them, some tests fail.
 
-## Skills are the routing layer
+### The parts
 
-The skills are not meant to be a pile of project-specific prompts. They are small reusable moves that let every surface ask the same questions:
+| If the person wants | Read |
+| --- | --- |
+| One menu for projects, sessions, roles, teams and accounts | `bin/ai` |
+| A standard for each new repository: agent instructions, contribution rules, hygiene checks, specification files and task files | `bin/new-repo`, `templates/`, `runbooks/new-repo.md`, `skills/new-repo/SKILL.md` |
+| Guards that refuse a risky command or a wrong push before it runs | `hooks/pre-tool-use-guard.sh`, `hooks/guard_git.py`, `hooks/git/`, `hooks/codex.rules`, `hooks/claude-settings.hooks.json`, `hooks/codex-hooks.json` |
+| A check that runs before an agent stops, with one result for each state of the code | `hooks/stop-check.sh`, `hooks/check-once.sh` |
+| One goal that many workers build on one branch, with a check before each result is joined | `skills/loop/SKILL.md`, `skills/loop/scripts/`, `docs/forge.md`, `bin/dev-forge` |
+| A goal, notes or a transcript made into decisions, specification changes and tasks | `skills/intake/SKILL.md`, `skills/distill/SKILL.md`, `skills/spec-lint/SKILL.md`, `bin/dev-spec`, `docs/spec/`, `templates/docs/spec/` |
+| An engineering method that agents load as skills | `skills/dev-plat/SKILL.md`, `docs/pstack-platform.md`, `docs/skills-layer.md`, the `skills/principle-*` folders |
+| Rules for the start of each session, and a plain writing standard | `skills/develop/SKILL.md`, `skills/develop/ste100.md`, `skills/develop/owner-words.md`, `docs/session-entry.md` |
+| Session titles in one format, and an index of sessions | `docs/session-naming.md`, `bin/ai-title`, `hooks/session-title.py`, `docs/session-index.md`, `bin/ai-session` |
+| A catalog of projects and a workspace for each project | `docs/development-workspace.md`, `bin/ai-work`, `bin/dev-workspace`, `skills/development-workspace/SKILL.md` |
+| Named roles with their own scope and memory | `agents/`, `ROLES.md`, `bin/ai-role`, `integrations/pi/`, `docs/pi-transition.md`, `docs/agent-memory.md`, `bin/ai-memory` |
+| Teams of agents with OpenRig | `integrations/openrig/README.md`, `bin/rig`, `bin/rig-shape`, `skills/setup-rig/SKILL.md`, `docs/rig-working-branches.md`, `docs/api-rig.md` |
+| Models by tier, and accounts with their usage | `MODELS.md`, `bin/pstack-model`, `skills/setup-pstack/SKILL.md`, `bin/ai-account`, `bin/ai-usage`, `docs/usage.md`, `docs/host-account-service.md` |
+| A small classifier for closed questions: route, rank, verify | `docs/jev.md`, `bin/ai-jev`, `schemas/jev/` |
+| Diagnostics, releases and incident steps | `bin/ai-env`, `bin/ai-release`, `runbooks/release.md`, `runbooks/incident.md` |
+| A journal in plain text files | `docs/filesystem-journal.md`, `lib/journal.py` |
+| Editor setup | `vscode/README.md`, `docs/zed.md` |
 
-- What project, worktree, loop or team owns this?
-- What live context should be hydrated before acting?
-- Should this be a rig seat, editor chat, loop worker, Pi role, desktop session or plain human note?
-- What evidence proves the step is done?
+### What to tell the person
 
-Some tasks should enter an active loop. Some should become a rig seat with a hydration packet. Some should stay a chat, a note, or a read-only investigation. That flexibility is the point.
+If you do not know these three things, ask first:
 
-See [`docs/skills-layer.md`](docs/skills-layer.md) for the target shape and [`docs/pstack-platform.md`](docs/pstack-platform.md) for the engineering method.
+1. Which agents and editors does the person use?
+2. Does the person work alone or in a team, and where is the code hosted?
+3. What goes wrong today? Examples: an agent pushes to the wrong branch, sessions get lost, nobody reviews the work, there is no specification.
 
-## Agents and surfaces
+Then answer in this sequence:
 
-The platform distinguishes roles instead of pretending every AI tool is the same:
+1. One paragraph that says what this system is, in plain words.
+2. Three to five parts that fit this person. For each part, give what it does, the files to read, what the person must have (tools, accounts), and how much work it is to use that part alone.
+3. The parts that do not fit this person, one line for each, with the reason.
+4. What is not in this copy, and what the person must supply.
+5. One first step that takes less than one hour.
 
-- **Owner**: decides, reviews, merges, tags, deploys.
-- **Herdr**: cockpit view over projects, tabs, rig seats and current work.
-- **OpenRig seats**: bounded conversations with project identity, peers, context and stop conditions.
-- **Editor chat**: surgical edits with the owner present.
-- **Headless coding agents**: one issue, one branch, one worktree, stop after check and PR body.
-- **Desktop agent sessions**: flexible planning, intake, review, phased work, but no competing ledger.
-- **Engineering / personal assistants**: loop control, diagnostics, drafted text and coordination, or personal time/journal context, neither with release authority.
+Rules for your answer:
 
-The same repository policy should be visible from every surface.
-
-## Privacy stance
-
-This repo is meant to be public-safe. It should contain procedures, templates, tests and generic examples, not private records.
-
-- No API keys, tokens, private prompts, transcripts or customer records.
-- No raw meeting notes or emails.
-- Local configuration stays in `~/.config/dev-platform`.
-- Credentials are read at runtime from the user's own credential store when needed.
-- Session indexing stores metadata only, not message bodies.
-
-If a private source produces engineering work, it becomes a redacted decision, issue, spec change or pull request. The private source itself stays outside the repository.
-
-## Status
-
-Personal infrastructure. Useful, tested, and evolving. Not packaged as a general-purpose product yet.
-
-This is the public copy of a private repository. The names of people, machines and clients are replaced with generic words (`the owner`, `dev-server`, `Engineer`, `Ops`, `Assistant`, `Acme`). The machine setup that the documents call `~/dev/dev-server` (users, units, `bootstrap.sh`) is a different repository and is not public. The root login helper (`ol-login`) and its document are also not public.
+- Say only what the files show. Give a path for each statement.
+- If you did not read a file, say so.
+- Do not tell the person to adopt the full system. Most parts are useful alone, and some parts depend on the machine setup that is not here.
+- Do not copy a file into a project of the person before the person agrees. The license is MIT (`LICENSE`).

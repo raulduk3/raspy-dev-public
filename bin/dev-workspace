@@ -41,7 +41,7 @@ def tmux_provider_overrides(listing):
 def scrub_tmux_environment(tmux=None):
     """Every new pane inherits the tmux server's global environment. A server that was
     started from inside another agent's service carries that service's provider overrides;
-    one dead proxy URL there once kept every new Claude seat retrying a refused connection.
+    one stale proxy URL there once kept every new Claude seat retrying a refused connection.
     Unset those names at the server before a launch. Running panes are untouched."""
     tmux = tmux or shutil.which("tmux")
     if not tmux:

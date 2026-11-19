@@ -114,7 +114,7 @@ def main():
                 process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 pass
-            # Kill remaining grandchildren even if the process-group leader already exited.
+            # Stop the remaining child processes even if the process-group leader already exited.
             try:
                 os.killpg(process.pid, signal.SIGKILL)
             except ProcessLookupError:

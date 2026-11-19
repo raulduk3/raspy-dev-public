@@ -131,7 +131,7 @@ Consumer wiring, a live usage TUI, native interrupted-worker resume, and Pi
 host-profile support remain separate acceptance items.
 
 On this Mac, `com.dev-platform.docker-login.plist` is installed under
-`~/Library/LaunchAgents/` and loaded as a one-shot login item. It opens Docker
+`~/Library/LaunchAgents/` and loaded as a single-run login item. It opens Docker
 Desktop at user login; it does not restart an already-running engine or supervise
 agents. Containers have persistent host homes/workspaces and the live restart
 policy was updated without recreating them. A Mac boot/login and real interrupted
