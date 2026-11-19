@@ -264,7 +264,7 @@ class CheckTests(Fixture):
         self.assertEqual(self.calls(), 1)
 
     def test_lock_of_a_dead_holder_is_cleared(self):
-        # A hook timeout killed an earlier run outright; its lock names a pid that no longer runs.
+        # A hook timeout stopped an earlier run; its lock names a pid that no longer runs.
         lock = self.repo / '.git/dev-platform/check-lock'
         lock.mkdir(parents=True)
         gone = subprocess.run(['sh', '-c', 'echo $$'], capture_output=True, text=True).stdout.strip()

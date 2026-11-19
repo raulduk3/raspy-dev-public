@@ -224,7 +224,7 @@ class RoleLaunch(unittest.TestCase):
         self.assertNotIn('CREDENTIALS_DIRECTORY', env)
 
     def test_the_pi_package_resolves_in_a_release_that_ships_no_node_modules(self):
-        # A release excludes integrations/pi/node_modules, so a launch would die on an
+        # A release excludes integrations/pi/node_modules, so a launch would fail on an
         # unresolved import. A working checkout hides that, which is how it shipped broken.
         platform = self.root / 'release'
         (platform / 'integrations/pi').mkdir(parents=True)

@@ -13,7 +13,7 @@ Write down the timeline as observed, with timestamps and sources, before touchin
 
 ## 2. Decide
 
-State the hypothesis, the smallest action that tests it, its blast radius and its rollback. File it as a `decision` issue or say it in the session. The owner decides.
+State the hypothesis, the smallest action that tests it, its reach and its rollback. File it as a `decision` issue or say it in the session. The owner decides.
 
 ## 3. Act, once authorized
 

@@ -20,7 +20,7 @@ raspy-dev expects the same skill contracts to be reachable from several places:
 | Claude Code and Codex desktop sessions | Use skills as modes and playbooks. The desktop app may be flexible, but it still writes code in a worktree, uses the same hooks, and leaves durable work on the ledger. |
 | CLI/headless workers | Use narrow skills from a written brief: one issue, one branch, one worktree, one check, one report, then stop. |
 | OpenRig seats | Use skills to hydrate a seat with project identity, current loop state, nearby seats, allowed actions, and handoff rules. A rig seat is a conversation with a role, not a second scheduler. |
-| Herdr/team spaces | Use skills to show the current project, rig seats, loop state, and active checks in one place. Herdr is a cockpit, not a source of truth. |
+| Herdr/team spaces | Use skills to show the current project, rig seats, loop state, and active checks in one place. Herdr is a view, not a source of truth. |
 | VS Code/editor chat | Use skills for surgical edits, PR walkthroughs, and review finding disposal while the owner is present. |
 
 ## Deterministic verb resolution

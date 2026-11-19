@@ -101,7 +101,7 @@ fi
 
 # A checkout in memory: /tmp, /dev/shm and /run/user are RAM (tmpfs), and /tmp is swept, so a
 # worktree there starves the machine and can lose uncommitted work (2026-10-06: 7.6 GB of
-# worktrees in /tmp left the local model killed for memory).
+# worktrees in /tmp left the local model stopped for memory).
 if printf '%s' "$flat" | grep -Eq '(^|[;&|] *)git +(worktree +add|clone)\b[^;&|]*[ =]["\x27]?(/tmp|/dev/shm|/run/user)(/|["\x27 ]|$)'; then
   refuse "no worktree or clone in /tmp, /dev/shm or /run/user (memory, and swept); put a worktree in its repository's .claude/worktrees/<name>"
 fi

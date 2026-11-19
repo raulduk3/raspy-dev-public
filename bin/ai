@@ -1073,7 +1073,7 @@ CURRENT = paths.install()
 
 def upgrade_if_released():
     """A menu left open across an update would keep running the old code, and its layout
-    rules would fight the new ones. At the home screen, a safe point, it restarts itself
+    rules would conflict with the new ones. At the home screen, a safe point, it restarts itself
     into the activated release."""
     installed = CURRENT.resolve() / "bin/ai"
     if not DRY and installed.is_file() and CURRENT.resolve() != ROOT:

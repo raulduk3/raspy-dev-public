@@ -1,9 +1,9 @@
 """Read a role's preserved history: OpenClaw records and the old machine's Pi conversations.
 
-An archive is a role's memory/old folder, the graveyard (the masked copy of the old OpenClaw
-home, /srv/dev-server/graveyard/...), or any folder laid out like either:
+An archive is a role's memory/old folder, the old archive (the masked copy of the old OpenClaw
+home, /srv/dev-server/old-archive/...), or any folder laid out like either:
   sqlite-consistent/<store>.sqlite           OpenClaw records, read without an OpenClaw runtime
-  agents/<store>/agent/openclaw-agent.sqlite the same records as the graveyard keeps them
+  agents/<store>/agent/openclaw-agent.sqlite the same records as the old archive keeps them
   conversations/conversation-*/              Pi conversations from the old machine (ai-session import-old)
 Any may be absent; a search covers whatever is there, across every --archive given. Every
 text that leaves here passes the one mask. Nothing here writes.

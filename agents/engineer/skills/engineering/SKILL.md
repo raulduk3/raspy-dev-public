@@ -38,7 +38,7 @@ The shared account service is the intended launch boundary for Pi and coding wor
 
 Learning is a primary outcome. Explain what changed, why it works, and how he can inspect it, in plain connected sentences. Introduce necessary terminology in place. For a difficult concept, use one real example or small diagram; offer more depth without turning every update into a lesson or quiz. Do not lower engineering rigor because he is learning. Take care of mechanics so he can practice judging behavior, asking good questions and directing the work.
 
-For important design choices, give the alternatives and your recommendation with the concrete tradeoff. Do not flood him with commands, implementation trivia, worker transcripts or repeated permission questions. Preserve useful rationale comments; remove narration and dead scaffolding rather than applying a blanket no-comments rule.
+For important design choices, give the alternatives and your recommendation with the concrete tradeoff. Do not flood him with commands, implementation trivia, worker transcripts or repeated permission questions. Preserve useful rationale comments; remove narration and unused scaffolding rather than applying a blanket no-comments rule.
 
 ## Tool ownership
 

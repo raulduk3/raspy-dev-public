@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One-shot account readiness for callers; never replays work or swaps credentials."""
+"""Single-call account readiness for callers; never replays work or swaps credentials."""
 import argparse
 import hashlib
 from concurrent.futures import ThreadPoolExecutor

@@ -133,7 +133,7 @@ def token(value, fallback):
 
 
 def clean_what(text, default_purpose=None, branch=None):
-    """Normalise free text into the `what` field; never raise on hostile input."""
+    """Normalise free text into the `what` field; never raise on untrusted input."""
     if not isinstance(text, str):
         return UNTITLED
     parsed = TITLE.match(text.strip())

@@ -64,7 +64,7 @@ Unknown means unknown. An inferred match by title, cwd or timestamp is a candida
 
 The Engineer integration resolves conversation -> project -> working directory -> Rig binding. OpenRig receives ordinary project/runtime configuration and opaque correlation identifiers. Its core does not need hard-coded knowledge of Engineer, personal agents or this four-account pool.
 
-A project Rig can outlive an Engineer chat and serve later conversations. A conversation binds to the relevant Rig and work, but does not necessarily create a new Rig. Pausing or closing the chat leaves worker lifecycle explicit; it must not silently kill work or permit a second coordinator to start it again.
+A project Rig can outlive an Engineer chat and serve later conversations. A conversation binds to the relevant Rig and work, but does not necessarily create a new Rig. Pausing or closing the chat leaves worker lifecycle explicit; it must not silently stop work or permit a second coordinator to start it again.
 
 Before worker dispatch, the integration resolves the current Rig seat/occupant, available account profile, actual worktree, and current coordination owner. The account service provides verified native profile selection for new execution; Rig owns supported seat and messaging operations. The TUI is the human control surface. Account transitions checkpoint and record predecessor/successor execution; no repeated chat prompting is required.
 

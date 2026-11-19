@@ -205,7 +205,7 @@ if __name__ == '__main__':
 
 
 class Mask(unittest.TestCase):
-    """One mask for transcripts and the graveyard; has_secret agrees with it exactly."""
+    """One mask for transcripts and the old archive; has_secret agrees with it exactly."""
 
     PLANTED = ['postgres://app:FAKEpass99@db.example/x', 'OPENAI_API_KEY=FAKEFAKEFAKE1234567', '{"client_secret": "FAKEsecret0000"}',
                'Authorization: Bearer FAKEFAKEFAKEFAKEFAKE', 'sk-ant-api03-FAKEFAKEFAKEFAKE',

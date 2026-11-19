@@ -91,7 +91,7 @@ def pi_modules(platform=None):
 
     Node resolves a bare import from node_modules beside the importing file. A release
     carries none, because integrations/pi/.gitignore excludes it, so the pinned runtime
-    is linked there once. Without this a launch dies on an unresolved import, which is
+    is linked there once. Without this a launch fails on an unresolved import, which is
     exactly how a working checkout hides the problem from a released install.
     """
     root = Path(platform or PLATFORM) / 'integrations/pi'
@@ -229,7 +229,7 @@ def plan(conversation_id, *, state_root=None, registry=None, account=None, model
     journal = str(Path(journal).resolve()) if journal and Path(journal).is_dir() else journal_root()
     # What a role adds goes to the owner's inbox: on dev-server the launcher names /home/owner/inbox.
     inbox = Path(inbox or os.environ.get('DEV_PLATFORM_INBOX') or Path.home() / 'inbox')
-    # The role's own memory/old and the graveyard: each an existing absolute directory.
+    # The role's own memory/old and the old archive: each an existing absolute directory.
     archives = []
     for given in ([history_archive] if isinstance(history_archive, (str, Path)) else history_archive or []):
         archive = Path(given).expanduser()
@@ -323,7 +323,7 @@ def main(argv=None):
         command.add_argument('--model')
         command.add_argument('--resume', help="'latest' or an absolute native session path inside the conversation")
         command.add_argument('--history-archive', type=Path, action='append',
-                             help='a preserved history to read (memory/old, the graveyard); may repeat')
+                             help='a preserved history to read (memory/old, the old archive); may repeat')
         command.add_argument('--journal', type=Path, help="the owner's journal, read-only (default: journal.conf, else /home/owner/journal)")
         command.add_argument('--inbox', type=Path, help="where a role's additions go (the owner's inbox)")
         command.add_argument('--offline', action='store_true', help='no model network; wiring checks only')
