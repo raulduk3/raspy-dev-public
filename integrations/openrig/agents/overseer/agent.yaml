@@ -1,0 +1,25 @@
+name: development-overseer
+version: "1.0"
+description: Read-only review of the development loop's worker branches for the owner.
+# A reviewer needs no history: each start is fresh, and the diff, spec and check carry it.
+defaults:
+  lifecycle:
+    execution_mode: interactive_resident
+    compaction_strategy: default-compaction
+    restore_policy: relaunch_fresh
+imports: []
+profiles:
+  default:
+    uses:
+      skills: []
+      guidance: [role]
+      subagents: []
+      plugins: []
+      runtime_resources: []
+resources:
+  guidance:
+    - id: role
+      path: guidance/role.md
+startup:
+  files: []
+  actions: []

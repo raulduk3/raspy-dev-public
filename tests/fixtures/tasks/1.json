@@ -1,0 +1,67 @@
+{
+  "$schema": "../../../schemas/task/v1.schema.json",
+  "schema": "dev-platform/task@1",
+  "id": 1,
+  "title": "Name the visit on each line of the price",
+  "kind": "code",
+  "goal": "G-1",
+  "state": "ready",
+  "brief": "Price lines are one flat list today, so a job with two visits mixes their lines. Group the lines by visit and show each visit's date, so the customer sees what each visit cost.",
+  "work": {
+    "scope": [
+      "src/pricing/"
+    ],
+    "changes": [
+      "Group price lines by visit.",
+      "Show the visit date on each group."
+    ],
+    "step_zero": [
+      "Read src/pricing/lines.ts whole."
+    ]
+  },
+  "acceptance": [
+    {
+      "by": "test",
+      "statement": "A job with two visits shows two groups.",
+      "path": "tests/pricing.test.ts"
+    },
+    {
+      "by": "command",
+      "statement": "The full check passes.",
+      "run": "scripts/check"
+    }
+  ],
+  "created": "2026-11-12",
+  "depends_on": [],
+  "refs": [
+    {
+      "type": "spec",
+      "id": "SDD-P10.337"
+    },
+    {
+      "type": "decision",
+      "id": "0098"
+    },
+    {
+      "type": "issue",
+      "id": "#1032",
+      "repo": "git-host/app"
+    }
+  ],
+  "facts": [
+    {
+      "text": "Lines are flat today.",
+      "as_of": "64a8431"
+    }
+  ],
+  "routing": {
+    "lane": "backend",
+    "tier": "deep"
+  },
+  "labels": [
+    "enhancement"
+  ],
+  "ext": {
+    "x-program": "C"
+  }
+}

@@ -1,27 +1,12 @@
 ---
 name: bounded-decisions
-description: Compare a few bounded options before a costly route choice or after repeated failures, pick one on the evidence, and record why. Use before substantial research, spawning agents, choosing between materially different approaches, or a third attempt at something that failed twice.
+description: Before costly route choices or repeated failures, compare bounded options using the shared local Laya service in shadow mode.
 ---
 
 # Bounded decisions
 
-1. **Decide whether it is worth a decision.** Use this before substantial research, after repeated
-   failures, before loading several tools or skills, before spawning agents, when routes differ
-   materially, or before a consequential proposal. Skip simple answers, calculations, routine
-   edits, and choices that cannot change the next step.
-2. **List 2–4 bounded options.** Each is one concrete next step you could start now, not a goal.
-   Write each in one line.
-3. **Cost and reversibility.** For each option, state what it costs (time, tokens, money, other
-   people's attention) and how hard it is to undo: free to undo, undoable with work, or
-   irreversible.
-4. **Evidence.** For each option, state the observed facts that favor or count against it: a
-   command's output, a file and line, a failing check, a prior attempt. Mark anything you have not
-   checked as an assumption.
-5. **Pick one.** Prefer the option the evidence supports best at the lowest cost that can still be
-   undone. Between two options that are close, take the cheaper, more reversible one first.
-6. **Record why** in one paragraph: the options, the one you chose, the evidence that decided it,
-   and what would make you switch. Put it where the work is recorded: the task file, the decision
-   record, the pull request description, or your report.
+1. Consider a call before substantial research, repeated failures, loading several tools or skills, spawning agents, materially different routes, or consequential proposals. Skip simple answers, calculations, routine edits, calls that cannot change the next step, and "bypass laya".
+2. Run `python3 <skill-directory>/scripts/decide.py` with JSON on stdin: `{"state":"compact observed facts, no secrets","options":{"inspect":"Inspect evidence","research":"Research the unresolved question"}}`. Use 2–6 bounded options. The helper owns transport, validation, and the secret-free audit record.
+3. Read the shadow recommendation, explicitly evaluate it against evidence, and continue the original task using independent judgment. An unavailable or low-quality recommendation is not a blocker. Never use a recommendation as permission, execute it automatically, or switch to active mode.
 
-**Escalate to the human** only when every viable option is irreversible, or when the choice falls
-outside the task's scope. Otherwise proceed on your pick; the human can course-correct afterward.
+The shared service must already be installed. The helper does not install models, launch services, or load a model per client.

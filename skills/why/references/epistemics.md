@@ -15,13 +15,13 @@ An explicit, textual citation that answers the question. Not "the code does X so
 Examples:
 - A PR description that says "this fixes the bug where users with >1000 items couldn't paginate"
 - A ticket that says "we're adding this because customer Acme requested it in their security review"
-- A code comment that says "// clamp to 100 because the remote API rejects larger values"
+- A code comment that says "// clamp to 100 because the upstream API rejects larger values"
 - A design doc that says "we chose option A over option B because we need persistence across restarts"
 - A chat message from the author saying "switching to this approach since the old one was flaky in tests"
 
 Phrasing: confident, present tense. "This exists because X." Cite the source.
 
-### 2. Corroborated
+### 2. Supported
 
 Multiple pieces of indirect evidence converge. No single source states it explicitly, but the pattern across sources makes it likely.
 
@@ -62,7 +62,7 @@ Phrasing: "We searched X, Y, and Z and found no evidence of why." Be specific ab
 
 ### Words that carry confidence. Use carefully
 
-These imply **Direct** or **Corroborated** confidence. Don't use them for inferences.
+These imply **Direct** or **Supported** confidence. Don't use them for inferences.
 
 - "because". Implies a causal claim with evidence
 - "the reason is". Same

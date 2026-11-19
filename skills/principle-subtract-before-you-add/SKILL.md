@@ -1,7 +1,10 @@
 ---
 name: principle-subtract-before-you-add
 description: "Apply when sequencing an addition, refactor, or rewrite. Remove dead code, redundant validators, and stub references first, then build on the simpler base."
+disable-model-invocation: true
 ---
+
+> **On this platform.** This is pstack's `principle-subtract-before-you-add` skill (MIT, Lauren Tan; the unmodified source is in `vendor/pstack`). Read [the platform map](../../docs/pstack-platform.md) (installed: `/opt/dev-platform/current/docs/pstack-platform.md`) once per session: it says what the Cursor tools named here are on this machine, and which steps the guard hook leaves to the owner.
 
 # Subtract Before You Add
 

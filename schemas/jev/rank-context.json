@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "name": "rank-context",
+  "purpose": "Rank a candidate source for whether it should enter an agent's context window.",
+  "boundary": "Jev classifies relevance only. Search finds candidates; code picks thresholds; the LLM reads selected sources.",
+  "questions": [
+    {
+      "id": "relevance",
+      "type": "score",
+      "question": "How relevant is this candidate to the stated task?",
+      "options": [
+        {"id": "none", "meaning": "Unrelated or unusable."},
+        {"id": "weak", "meaning": "Possibly related but not enough to load first."},
+        {"id": "strong", "meaning": "Directly useful for the task."},
+        {"id": "critical", "meaning": "Likely necessary evidence for the task."}
+      ]
+    },
+    {
+      "id": "load_first",
+      "type": "noul",
+      "question": "This candidate should be loaded before lower-ranked candidates."
+    }
+  ]
+}

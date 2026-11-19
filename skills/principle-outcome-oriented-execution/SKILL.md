@@ -1,7 +1,10 @@
 ---
 name: principle-outcome-oriented-execution
 description: "Apply during planned rewrites and migrations with explicit phase boundaries. Converge on the target architecture; don't preserve smooth intermediate states with throwaway compatibility code."
+disable-model-invocation: true
 ---
+
+> **On this platform.** This is pstack's `principle-outcome-oriented-execution` skill (MIT, Lauren Tan; the unmodified source is in `vendor/pstack`). Read [the platform map](../../docs/pstack-platform.md) (installed: `/opt/dev-platform/current/docs/pstack-platform.md`) once per session: it says what the Cursor tools named here are on this machine, and which steps the guard hook leaves to the owner.
 
 # Outcome-Oriented Execution
 

@@ -1,0 +1,34 @@
+{
+  "$schema": "../../../schemas/task/v1.schema.json",
+  "schema": "dev-platform/task@1",
+  "id": 4,
+  "title": "Rotate the staging deploy key",
+  "kind": "ops",
+  "goal": "G-1",
+  "state": "ready",
+  "brief": "The staging deploy key is old. Make a new key, install it on staging, and keep the old one until the first deploy with the new key passes.",
+  "work": {
+    "host": "git-host",
+    "steps": [
+      "Make a new key.",
+      "Install it on staging."
+    ],
+    "rollback": [
+      "Restore the old key from the vault."
+    ],
+    "window": "weekday after 18:00"
+  },
+  "acceptance": [
+    {
+      "by": "host",
+      "statement": "Staging deploys with the new key.",
+      "host": "git-host",
+      "run": "ci deploy staging app"
+    }
+  ],
+  "created": "2026-11-12",
+  "assignee": {
+    "type": "person",
+    "name": "owner"
+  }
+}

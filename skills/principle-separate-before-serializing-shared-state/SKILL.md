@@ -1,7 +1,10 @@
 ---
 name: principle-separate-before-serializing-shared-state
 description: "Apply when concurrent actors might write to the same file, branch, key, or state object. Eliminate the sharing first; serialize structurally only when one shared writer is a real invariant."
+disable-model-invocation: true
 ---
+
+> **On this platform.** This is pstack's `principle-separate-before-serializing-shared-state` skill (MIT, Lauren Tan; the unmodified source is in `vendor/pstack`). Read [the platform map](../../docs/pstack-platform.md) (installed: `/opt/dev-platform/current/docs/pstack-platform.md`) once per session: it says what the Cursor tools named here are on this machine, and which steps the guard hook leaves to the owner.
 
 # Separate Before Serializing Shared State
 

@@ -1,0 +1,15 @@
+{
+  "assistant": [],
+  "ops": [],
+  "engineer": [
+    "agents/engineer/skills/engineering",
+    "skills/dev-plat",
+    "skills/development-workspace",
+    "skills/distill",
+    "skills/intake",
+    "skills/loop",
+    "skills/new-repo",
+    "skills/setup-rig",
+    "skills/spec-lint"
+  ]
+}

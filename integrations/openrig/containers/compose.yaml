@@ -1,0 +1,233 @@
+{
+  "name": "engineer-account-environments",
+  "services": {
+    "anthropic-alpha": {
+      "build": {
+        "context": "."
+      },
+      "image": "dev-platform-account-env:0.5.14",
+      "init": true,
+      "restart": "unless-stopped",
+      "ports": [
+        "127.0.0.1:17433:7433"
+      ],
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "${AI_ENV_ROOT:?Run prepare.py first}/anthropic-alpha/home",
+          "target": "/home/node"
+        },
+        {
+          "type": "bind",
+          "source": "${AI_ENV_ROOT:?Run prepare.py first}/anthropic-alpha/workspace",
+          "target": "/workspace"
+        }
+      ],
+      "secrets": [
+        {
+          "source": "anthropic-alpha-control",
+          "target": "control_token"
+        }
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "cap_drop": [
+        "ALL"
+      ],
+      "user": "${AI_ENV_UID:?Run prepare.py first}:${AI_ENV_GID:?Run prepare.py first}",
+      "networks": [
+        "anthropic-alpha"
+      ],
+      "stop_grace_period": "45s",
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:7433/healthz',{signal:AbortSignal.timeout(4000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        ],
+        "interval": "30s",
+        "timeout": "5s",
+        "retries": 3,
+        "start_period": "45s"
+      }
+    },
+    "anthropic-bravo": {
+      "build": {
+        "context": "."
+      },
+      "image": "dev-platform-account-env:0.5.14",
+      "init": true,
+      "restart": "unless-stopped",
+      "ports": [
+        "127.0.0.1:17434:7433"
+      ],
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "${AI_ENV_ROOT:?Run prepare.py first}/anthropic-bravo/home",
+          "target": "/home/node"
+        },
+        {
+          "type": "bind",
+          "source": "${AI_ENV_ROOT:?Run prepare.py first}/anthropic-bravo/workspace",
+          "target": "/workspace"
+        }
+      ],
+      "secrets": [
+        {
+          "source": "anthropic-bravo-control",
+          "target": "control_token"
+        }
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "cap_drop": [
+        "ALL"
+      ],
+      "user": "${AI_ENV_UID:?Run prepare.py first}:${AI_ENV_GID:?Run prepare.py first}",
+      "networks": [
+        "anthropic-bravo"
+      ],
+      "stop_grace_period": "45s",
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:7433/healthz',{signal:AbortSignal.timeout(4000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        ],
+        "interval": "30s",
+        "timeout": "5s",
+        "retries": 3,
+        "start_period": "45s"
+      }
+    },
+    "openai-alpha": {
+      "build": {
+        "context": "."
+      },
+      "image": "dev-platform-account-env:0.5.14",
+      "init": true,
+      "restart": "unless-stopped",
+      "ports": [
+        "127.0.0.1:17435:7433"
+      ],
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "${AI_ENV_ROOT:?Run prepare.py first}/openai-alpha/home",
+          "target": "/home/node"
+        },
+        {
+          "type": "bind",
+          "source": "${AI_ENV_ROOT:?Run prepare.py first}/openai-alpha/workspace",
+          "target": "/workspace"
+        }
+      ],
+      "secrets": [
+        {
+          "source": "openai-alpha-control",
+          "target": "control_token"
+        }
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "cap_drop": [
+        "ALL"
+      ],
+      "user": "${AI_ENV_UID:?Run prepare.py first}:${AI_ENV_GID:?Run prepare.py first}",
+      "networks": [
+        "openai-alpha"
+      ],
+      "stop_grace_period": "45s",
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:7433/healthz',{signal:AbortSignal.timeout(4000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        ],
+        "interval": "30s",
+        "timeout": "5s",
+        "retries": 3,
+        "start_period": "45s"
+      }
+    },
+    "openai-bravo": {
+      "build": {
+        "context": "."
+      },
+      "image": "dev-platform-account-env:0.5.14",
+      "init": true,
+      "restart": "unless-stopped",
+      "ports": [
+        "127.0.0.1:17436:7433"
+      ],
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "${AI_ENV_ROOT:?Run prepare.py first}/openai-bravo/home",
+          "target": "/home/node"
+        },
+        {
+          "type": "bind",
+          "source": "${AI_ENV_ROOT:?Run prepare.py first}/openai-bravo/workspace",
+          "target": "/workspace"
+        }
+      ],
+      "secrets": [
+        {
+          "source": "openai-bravo-control",
+          "target": "control_token"
+        }
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "cap_drop": [
+        "ALL"
+      ],
+      "user": "${AI_ENV_UID:?Run prepare.py first}:${AI_ENV_GID:?Run prepare.py first}",
+      "networks": [
+        "openai-bravo"
+      ],
+      "stop_grace_period": "45s",
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:7433/healthz',{signal:AbortSignal.timeout(4000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        ],
+        "interval": "30s",
+        "timeout": "5s",
+        "retries": 3,
+        "start_period": "45s"
+      }
+    }
+  },
+  "secrets": {
+    "anthropic-alpha-control": {
+      "file": "${AI_ENV_ROOT:?Run prepare.py first}/anthropic-alpha/secrets/control-token"
+    },
+    "anthropic-bravo-control": {
+      "file": "${AI_ENV_ROOT:?Run prepare.py first}/anthropic-bravo/secrets/control-token"
+    },
+    "openai-alpha-control": {
+      "file": "${AI_ENV_ROOT:?Run prepare.py first}/openai-alpha/secrets/control-token"
+    },
+    "openai-bravo-control": {
+      "file": "${AI_ENV_ROOT:?Run prepare.py first}/openai-bravo/secrets/control-token"
+    }
+  },
+  "networks": {
+    "anthropic-alpha": {},
+    "anthropic-bravo": {},
+    "openai-alpha": {},
+    "openai-bravo": {}
+  }
+}

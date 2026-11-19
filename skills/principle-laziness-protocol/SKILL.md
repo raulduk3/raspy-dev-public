@@ -1,7 +1,10 @@
 ---
 name: principle-laziness-protocol
 description: "Apply when refactoring, evaluating diff size, or tempted to add abstractions, layers, or signal threading. Bias toward deletion and the smallest change that solves the problem."
+disable-model-invocation: true
 ---
+
+> **On this platform.** This is pstack's `principle-laziness-protocol` skill (MIT, Lauren Tan; the unmodified source is in `vendor/pstack`). Read [the platform map](../../docs/pstack-platform.md) (installed: `/opt/dev-platform/current/docs/pstack-platform.md`) once per session: it says what the Cursor tools named here are on this machine, and which steps the guard hook leaves to the owner.
 
 # Laziness Protocol
 

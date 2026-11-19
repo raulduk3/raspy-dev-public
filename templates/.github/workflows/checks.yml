@@ -1,0 +1,52 @@
+# Nondeploying review lane: pull requests into develop and main. No push trigger, no dispatch,
+# no secrets, no deploy. The job names `test` and `verify-build` are the required checks in the
+# branch rulesets.
+name: checks
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: "true"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Task schema validator
+        run: python3 -m pip install --user --quiet jsonschema==4.26.0
+
+      - name: Platform check
+        env:
+          HYGIENE_BASE_REF: ${{ github.event.pull_request.base.sha }}
+        run: scripts/check
+
+  verify-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Version derives
+        run: python3 scripts/version.py --json

@@ -1,8 +1,10 @@
 ---
 name: principle-build-the-lever
 description: "Apply to any non-trivial work, not just bulk work: edits, migrations, analyses, checks. Build the tool that does it or proves it (codemod, script, generator, or a skill your subagents follow) instead of working by hand. The tool is the artifact a reviewer can rerun."
+disable-model-invocation: true
 ---
 
+> **On this platform.** This is pstack's `principle-build-the-lever` skill (MIT, Lauren Tan; the unmodified source is in `vendor/pstack`). Read [the platform map](../../docs/pstack-platform.md) (installed: `/opt/dev-platform/current/docs/pstack-platform.md`) once per session: it says what the Cursor tools named here are on this machine, and which steps the guard hook leaves to the owner.
 # Build the Lever
 
 When the work isn't trivial, build the tool that does it instead of doing it by hand.

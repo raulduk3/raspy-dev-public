@@ -1,0 +1,47 @@
+---
+name: setup-rig
+description: >-
+  Shape a project's OpenRig team: pick a named shape (build, review, solo), choose each seat's
+  runtime, and record the team spec in the project's team folder with its own history.
+  Use for /setup-rig, "shape the team", "change the rig", or "which seats should this project
+  have". Never starts or changes a running team.
+disable-model-invocation: true
+---
+
+# Setup rig
+
+A project's team is a spec, `~/dev/teams/<team>/rig.yaml`, outside the repository. This skill
+writes that spec from a named shape with `rig-shape`, the platform command the `ai` menu also
+uses, so every surface records the team the same way. The team folder is its own small Git
+repository: every shape change is a commit, and `rig-shape history` shows them.
+
+Only the owner, or Engineer on the owner's word, shapes a team. A seat never reshapes the team it
+sits in: the control, worker and review seats refuse this skill.
+
+## Steps
+
+1. **Resolve the project.** Use the project the owner named, or the repository this session is
+   in. `rig-shape` takes its id, `owner/repo`, or its checkout path.
+2. **Show the current team.** `rig-shape show <project>` and `rig-shape history <project>`. A
+   project with no spec yet starts with the `build` shape.
+3. **Offer the shapes.** `rig-shape list` prints each with its summary. Ask which fits the goal;
+   `build` is the default. Prefer AskUserQuestion over free text.
+   - `build`: control, a Codex overseer, and worker seats. The standard team.
+   - `review`: control, two overseers on different providers, and worker seats. For risky goals,
+     and the API rig's shape (`--all pi`).
+   - `solo`: control and worker seats, no overseer. For small goals where the check is the review.
+4. **Offer seat runtimes.** Each seat runs `claude-code`, `codex` or `pi`. Keep the shape's defaults
+   unless the owner wants a change; the overseer on a different provider from the workers is the
+   point of review. `--all pi` is the API rig (`docs/api-rig.md`): every seat on Pi with the
+   OpenRouter key, its model the model file's `rig control`, `rig overseer` or `rig second
+   overseer` line resolved for openrouter; the `review` shape's two overseers must resolve to two
+   makers, and the write refuses otherwise. A project runs on the API rig through `api-rig
+   switch <project> --to api`, not by writing the shape alone.
+5. **Write it.** `rig-shape write <project> <shape> [--runtime <seat>=<runtime> ...]`. It checks the
+   spec with OpenRig's own validator when `rig` is installed, refuses an invalid one, and commits
+   it to the team folder's history. Report its line as it printed it.
+6. **Say when it applies.** A running team keeps its shape. The new one takes effect the next time
+   the team starts: `ai` → the project → This project's team, after Stop this team.
+
+Pinning a seat to a specific account (`config_home`) is not part of a shape yet;
+`docs/how-it-connects.md` has the manual steps.

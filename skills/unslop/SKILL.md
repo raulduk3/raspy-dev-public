@@ -1,7 +1,10 @@
 ---
 name: unslop
 description: Cut AI tells from any writing. Must always apply.
+disable-model-invocation: true
 ---
+
+> **On this platform.** This is pstack's `unslop` skill (MIT, Lauren Tan; the unmodified source is in `vendor/pstack`). Read [the platform map](../../docs/pstack-platform.md) (installed: `/opt/dev-platform/current/docs/pstack-platform.md`) once per session: it says what the Cursor tools named here are on this machine, and which steps the guard hook leaves to the owner.
 
 # Unslop
 

@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "name": "verify-claim",
+  "purpose": "Classify whether a cited source supports a bounded claim.",
+  "boundary": "Jev does not decide truth. It classifies the relationship between one source and one claim.",
+  "questions": [
+    {
+      "id": "source_relation",
+      "type": "choice",
+      "question": "What relationship does the source have to the claim?",
+      "options": [
+        {"id": "supports", "meaning": "The source directly supports the claim."},
+        {"id": "contradicts", "meaning": "The source directly contradicts the claim."},
+        {"id": "not_stated", "meaning": "The source does not state enough to support or contradict."}
+      ]
+    },
+    {
+      "id": "quote_faithful",
+      "type": "noul",
+      "question": "Any quoted or paraphrased text is faithful to the source."
+    }
+  ]
+}

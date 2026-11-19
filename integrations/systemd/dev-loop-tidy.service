@@ -1,0 +1,7 @@
+[Unit]
+Description=Remove merged refs and clean worktrees in every registered repository (dev-loop tidy)
+
+[Service]
+Type=oneshot
+ExecStart=/opt/dev-platform/current/skills/loop/scripts/tidy-all.sh
+Nice=10

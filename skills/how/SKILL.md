@@ -1,13 +1,16 @@
 ---
 name: how
 description: "Use for \"how does X work\", code walkthroughs before changing something, and placement / ownership / layering questions (\"where should this live\", \"which package owns this\", \"is this the right layer\"). Explains subsystem architecture, runtime flow, onboarding mental models. Use why for motivation."
+disable-model-invocation: true
 ---
+
+> **On this platform.** This is pstack's `how` skill (MIT, Lauren Tan; the unmodified source is in `vendor/pstack`). Read [the platform map](../../docs/pstack-platform.md) (installed: `/opt/dev-platform/current/docs/pstack-platform.md`) once per session: it says what the Cursor tools named here are on this machine, and which steps the guard hook leaves to the owner.
 
 # How
 
 Explore the codebase to answer "how does X work?" questions. Produce architectural explanations at the level of a senior engineer onboarding onto a subsystem, enough to build a working mental model, not so much that it reads like annotated source code.
 
-Each subagent below names a tier: judgment, implementation or mechanical. Run it on the model that `models.md` (the tier map at the root of this skills repository) assigns to that tier. If the file or the tier is missing, use the model you are running on and say so.
+Each spawn below names a role line in the `pstack-models.mdc` rule and a default. Set `model` to that line's value, or to the default if the rule or the line is missing. Leave `model` unset when the value is `auto` or `inherit-parent`. If the Task tool rejects a slug, use the default and say so. If it rejects the default, use the closest valid slug of the same family from its error message.
 
 ## Step 1. Assess Complexity
 
@@ -20,28 +23,31 @@ When in doubt, take the simple path.
 
 ## Step 2a. Explore (complex questions only)
 
-Decompose the question into 2 to 4 exploration angles, each a distinct slice of the subsystem. Spawn all explorers at once, in parallel:
+Decompose the question into 2 to 4 exploration angles, each a distinct slice of the subsystem. Spawn all explorers in a single message:
 
-- Tier: **implementation**
-- Read-only
+- `subagent_type`: `generalPurpose`
+- `model`: the `how explorer` line, default `implementation-xhigh`
+- `readonly`: `true`
 
 Each explorer gets the prompt in `references/explorer-prompt.md` with its angle filled in. Then go to Step 3.
 
 ## Step 2b. Direct Explain (simple questions)
 
-Spawn one subagent that explores and explains in one pass:
+Spawn one Task subagent that explores and explains in one pass:
 
-- Tier: **judgment**
-- Read-only
+- `subagent_type`: `generalPurpose`
+- `model`: the `how explainer` line, default `judgment-max`
+- `readonly`: `true`
 
 Build its prompt from `references/explainer-prompt.md` without the explorer-findings section. Go to Step 4.
 
 ## Step 3. Synthesize (complex questions only)
 
-Once all explorers have returned, spawn one subagent to synthesize their findings into one explanation:
+Once all explorers have returned, spawn one Task subagent to synthesize their findings into one explanation:
 
-- Tier: **judgment**
-- Read-only
+- `subagent_type`: `generalPurpose`
+- `model`: the `how explainer` line, default `judgment-max`
+- `readonly`: `true`
 
 Build its prompt from `references/explainer-prompt.md` with every explorer's findings filled in.
 

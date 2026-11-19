@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "name": "check-completion",
+  "purpose": "Classify whether a bounded agent task appears complete from the supplied evidence.",
+  "boundary": "Jev supplies a second-pass completion signal only. Tests, diffs, reviewers, and users remain the proof of completion.",
+  "questions": [
+    {
+      "id": "completion_state",
+      "type": "choice",
+      "question": "What completion state is supported by the evidence?",
+      "options": [
+        {"id": "complete", "meaning": "The requested bounded outcome appears satisfied."},
+        {"id": "partial", "meaning": "Some requested work appears done but important parts remain."},
+        {"id": "blocked", "meaning": "The work could not continue without new information or access."},
+        {"id": "unsupported", "meaning": "The evidence does not support the completion claim."}
+      ]
+    },
+    {
+      "id": "scope_match",
+      "type": "noul",
+      "question": "The evidence stays within the requested scope."
+    }
+  ]
+}

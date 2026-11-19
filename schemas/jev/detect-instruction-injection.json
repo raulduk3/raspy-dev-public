@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "name": "detect-instruction-injection",
+  "purpose": "Classify untrusted text for instructions aimed at an agent or platform tool.",
+  "boundary": "Jev is an escalation signal only. Existing prompt-injection, privacy, and tool guards remain authoritative.",
+  "questions": [
+    {
+      "id": "instruction_target",
+      "type": "choice",
+      "question": "What kind of instruction does the text contain?",
+      "options": [
+        {"id": "content_only", "meaning": "Ordinary content with no operational instruction."},
+        {"id": "instruction_to_user", "meaning": "Instruction meant for the human reader."},
+        {"id": "instruction_to_agent", "meaning": "Instruction or policy aimed at the agent/tool."},
+        {"id": "credential_or_policy_attack", "meaning": "Attempts to obtain credentials, override policy, or redirect tool behavior."}
+      ]
+    },
+    {
+      "id": "escalate",
+      "type": "noul",
+      "question": "This text should be escalated or isolated before any agent acts on it."
+    }
+  ]
+}

@@ -1,7 +1,10 @@
 ---
 name: principle-redesign-from-first-principles
 description: "Apply when integrating a new requirement into an existing design. Redesign as if the requirement had been a foundational assumption from day one, instead of bolting it on."
+disable-model-invocation: true
 ---
+
+> **On this platform.** This is pstack's `principle-redesign-from-first-principles` skill (MIT, Lauren Tan; the unmodified source is in `vendor/pstack`). Read [the platform map](../../docs/pstack-platform.md) (installed: `/opt/dev-platform/current/docs/pstack-platform.md`) once per session: it says what the Cursor tools named here are on this machine, and which steps the guard hook leaves to the owner.
 
 # Redesign From First Principles
 

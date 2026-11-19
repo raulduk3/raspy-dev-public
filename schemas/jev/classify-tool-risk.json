@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "name": "classify-tool-risk",
+  "purpose": "Classify proposed tool or command risk so platform code can escalate when appropriate.",
+  "boundary": "Jev may raise risk or ask for confirmation. Deterministic guards and humans remain authoritative and Jev must never lower a stricter rule.",
+  "questions": [
+    {
+      "id": "risk_level",
+      "type": "score",
+      "question": "What is the highest risk level visible in the proposed action?",
+      "options": [
+        {"id": "read_only", "meaning": "Reads local non-sensitive state only."},
+        {"id": "local_reversible", "meaning": "Local change that is easy to inspect and reverse."},
+        {"id": "destructive_or_external", "meaning": "Deletes data, changes remote state, uses the network, or affects another system."},
+        {"id": "credential_privacy_billing", "meaning": "Touches credentials, private records, accounts, billing, deployment, or public output."}
+      ]
+    },
+    {
+      "id": "requires_confirmation",
+      "type": "noul",
+      "question": "A human confirmation should be required before this action runs."
+    }
+  ]
+}

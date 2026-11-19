@@ -1,20 +1,93 @@
 #!/usr/bin/env bash
-# Global pre-push (core.hooksPath): no push to a protected branch and no force push, for every
-# agent, editor and person. A person who must push a protected branch runs
-# `ALLOW_PROTECTED=1 git push ...` at a terminal; the agent guard refuses that variable.
-# Then runs the repository's own pre-push hook, if it has one.
-set -euo pipefail
+# Global git pre-push hook (core.hooksPath), for every local interface: Claude Code, Codex, Pi,
+# Zed and a plain terminal. SDD-SC-11, SDD-SC-14.
+#
+# Refuses, by the tier of the repository (lib/ai_ecosystem/tiers.py):
+#   - a force update of any ref (the old value is not an ancestor of the new value);
+#   - a push of refs/heads/wip/*;
+#   - a push to or delete of main, master or develop at tiers 2 to 4;
+#   - at tier 1, a push of main or master that is not a fast-forward, and any push of develop;
+#   - at tier 3, a branch named claude/*, codex/* or copilot/*.
+# The loop land verb sets DEV_LOOP_LAND=1. At tiers 1 and 2 that permits a fast-forward push of
+# main, master or develop. A force update stays refused.
+# Then the hook runs the repository's own pre-push hook, so a global hooksPath does not turn it off.
+set -u
+here="$(dirname "$(readlink -f "$0")")"
 input="$(cat)"
-protected=" ${GUARD_PROTECTED:-main master} "
+
+chain() {
+  local common hook
+  common="$(env -u GIT_DIR -u GIT_WORK_TREE git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || exit "${1:-0}"
+  hook="$common/hooks/pre-push"
+  if [ -x "$hook" ] && [ -f "$hook" ]; then
+    "$hook" "${@:2}" <<< "$input"
+    exit $?
+  fi
+  exit "${1:-0}"
+}
+
+refuse() {
+  printf 'dev-platform pre-push: %s\n' "$1" >&2
+  exit 1
+}
+
+tier=3
+tiers_py="$here/../../lib/ai_ecosystem/tiers.py"
+if [ -f "$tiers_py" ]; then
+  top="$(env -u GIT_DIR -u GIT_WORK_TREE git rev-parse --show-toplevel 2>/dev/null || pwd)"
+  found="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE python3 -I "$tiers_py" --field tier "$top" 2>/dev/null || true)"
+  case "$found" in 0|1|2|3|4) tier="$found" ;; esac
+  # Where the project record turns the Git rules off, this hook applies no rule (SDD-PJ-04).
+  off="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE python3 -I "$tiers_py" --field off "$top" 2>/dev/null || true)"
+  case ",$off," in *,git,*) chain 0 "$@" ;; esac
+fi
+[ "$tier" = 0 ] && chain 0 "$@"
+
+zero='0000000000000000000000000000000000000000'
 while read -r local_ref local_sha remote_ref remote_sha; do
-  [ -n "${local_ref:-}" ] && [ "${ALLOW_PROTECTED:-0}" != 1 ] || continue
-  branch="${remote_ref#refs/heads/}"
-  case "$protected" in *" $branch "*)
-    echo "pre-push: $branch is protected; push a task branch and open a pull request" >&2; exit 1 ;;
+  [ -n "${remote_ref:-}" ] || continue
+  case "$remote_ref" in refs/heads/*) name="${remote_ref#refs/heads/}" ;; *) name="" ;; esac
+
+  if [ "$local_sha" = "$zero" ]; then
+    case "$name" in main|master|develop) refuse "deleting $name is refused" ;; esac
+    continue
+  fi
+
+  case "$name" in
+    wip/*) refuse "a wip/ branch is never pushed; rename $name to a type/short-description branch first" ;;
   esac
-  [ -n "${local_sha//0/}" ] && [ -n "${remote_sha//0/}" ] || continue   # new branch or deletion
-  git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null || {
-    echo "pre-push: $branch would be rewritten (or fetch first); make new commits instead" >&2; exit 1; }
-done <<<"$input"
-own="$(git rev-parse --git-common-dir)/hooks/pre-push"   # the repository's own, not this one
-[ ! -x "$own" ] || printf '%s\n' "$input" | "$own" "$@"
+
+  # A force update: the old value is not an ancestor of the new value. An old value that this
+  # repository does not have cannot be checked, so it counts as a force update.
+  if [ "$remote_sha" != "$zero" ]; then
+    if ! git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
+      case "$remote_ref" in
+        refs/tags/*) refuse "moving the tag ${remote_ref#refs/tags/} is refused" ;;
+        *) refuse "force update of $remote_ref is refused: the remote value is not in this repository; fetch first" ;;
+      esac
+    fi
+    if ! git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null; then
+      refuse "force update of $remote_ref is refused; nothing pushed for review is rewritten"
+    fi
+  fi
+
+  case "$name" in
+    main|master|develop)
+      if [ "${DEV_LOOP_LAND:-}" = 1 ] && { [ "$tier" = 1 ] || [ "$tier" = 2 ]; }; then
+        continue
+      fi
+      if [ "$tier" = 1 ] && [ "$name" != develop ]; then
+        continue
+      fi
+      refuse "push to $name is refused at tier $tier; open a pull request from a type/short-description branch"
+      ;;
+  esac
+
+  if [ "$tier" = 3 ]; then
+    case "$name" in
+      claude/*|codex/*|copilot/*) refuse "professional repository: no tool-named branch ($name)" ;;
+    esac
+  fi
+done <<< "$input"
+
+chain 0 "$@"

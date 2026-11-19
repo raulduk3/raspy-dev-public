@@ -1,7 +1,10 @@
 ---
 name: principle-foundational-thinking
 description: "Apply before writing logic: choosing core types and data structures, sequencing scaffold-vs-feature work, asking what concurrent actors share. Get the data structures right so downstream code becomes obvious."
+disable-model-invocation: true
 ---
+
+> **On this platform.** This is pstack's `principle-foundational-thinking` skill (MIT, Lauren Tan; the unmodified source is in `vendor/pstack`). Read [the platform map](../../docs/pstack-platform.md) (installed: `/opt/dev-platform/current/docs/pstack-platform.md`) once per session: it says what the Cursor tools named here are on this machine, and which steps the guard hook leaves to the owner.
 
 # Foundational Thinking
 

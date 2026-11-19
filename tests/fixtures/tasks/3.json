@@ -1,0 +1,34 @@
+{
+  "$schema": "../../../schemas/task/v1.schema.json",
+  "schema": "dev-platform/task@1",
+  "id": 3,
+  "title": "Compare three photo models",
+  "kind": "research",
+  "goal": "G-1",
+  "state": "ready",
+  "brief": "The photo route needs a model. Compare three candidates on the seven fixtures and report speed, cost and agreement, so the owner can choose.",
+  "work": {
+    "questions": [
+      "Which model reads the seven fixtures fastest?"
+    ],
+    "sources": [
+      "https://openrouter.ai/models"
+    ],
+    "deliverable": {
+      "format": "html",
+      "path": "reports/photo-models.html"
+    }
+  },
+  "acceptance": [
+    {
+      "by": "artifact",
+      "statement": "The report exists with one row per model.",
+      "path": "reports/photo-models.html"
+    }
+  ],
+  "created": "2026-11-12",
+  "assignee": {
+    "type": "agent",
+    "name": "engineer"
+  }
+}

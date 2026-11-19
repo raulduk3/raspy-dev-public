@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "notice": "The one account registry. Never a credential here. A new account or API-key provider is one entry; bootstrap.sh merges this file into /var/lib/dev-server/accounts/registry.json and keeps the identities recorded there. Service keys (Perplexity, Harvest, Jev) have no client: they are handed to tools under their \"service\" name and never offered as a harness. Billing is per account and client: \"billing\" names it where a client is billed differently from the account's kind (Pi on an Anthropic plan is metered API cost).",
+  "accounts": [
+    {"id": "anthropic", "provider": "anthropic", "kind": "subscription", "clients": ["claude"], "default": true, "expected_identity": null, "quota_source": "claude-statusline", "billing": {"claude": "subscription"}},
+    {"id": "anthropic-acme", "provider": "anthropic", "kind": "subscription", "clients": ["claude"], "default": false, "places": ["/home/owner/dev/acme"], "expected_identity": null, "quota_source": "claude-statusline", "billing": {"claude": "subscription"}},
+    {"id": "openai", "provider": "openai", "kind": "subscription", "clients": ["codex", "pi"], "default": true, "expected_identity": null, "quota_source": "codex-rate-limits", "billing": {"codex": "subscription", "pi": "subscription"}},
+    {"id": "local", "provider": "local", "kind": "local", "clients": ["local"], "default": true, "expected_identity": null, "quota_source": "none"},
+    {"id": "openrouter", "provider": "openrouter", "kind": "api-key", "clients": ["pi"], "default": true, "expected_identity": null, "quota_source": "openrouter-key", "key_check": {"url": "https://openrouter.ai/api/v1/key", "auth": "bearer", "identity": "data.label"}},
+    {"id": "github", "provider": "github", "kind": "oauth", "clients": ["gh"], "default": true, "expected_identity": null, "quota_source": "none"},
+    {"id": "github-globex", "provider": "github", "kind": "oauth", "clients": ["gh"], "default": false, "expected_identity": null, "quota_source": "none", "places": ["/home/owner/dev/globex/"]},
+    {"id": "perplexity", "provider": "perplexity", "kind": "api-key", "clients": [], "service": "dev-platform-perplexity", "default": true, "expected_identity": null, "quota_source": "none"},
+    {"id": "harvest", "provider": "harvest", "kind": "api-key", "clients": [], "service": "harvest-api", "owner_read": true, "billing": {"key": "none"}, "default": true, "expected_identity": null, "quota_source": "none", "key_parts": ["account_id", "token"], "key_check": {"url": "https://api.harvestapp.com/v2/users/me", "auth": "bearer", "bearer_part": "token", "headers": {"Harvest-Account-Id": "account_id", "User-Agent": "=dev-server ol-login"}, "reports": "email"}}
+  ]
+}

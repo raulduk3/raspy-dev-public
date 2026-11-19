@@ -1,7 +1,10 @@
 ---
 name: principle-model-the-domain
 description: "Apply when writing stateful logic, or when code branches a lot or repeats a shape assumption across files. Encode the domain in a structure instead of scattered conditionals."
+disable-model-invocation: true
 ---
+
+> **On this platform.** This is pstack's `principle-model-the-domain` skill (MIT, Lauren Tan; the unmodified source is in `vendor/pstack`). Read [the platform map](../../docs/pstack-platform.md) (installed: `/opt/dev-platform/current/docs/pstack-platform.md`) once per session: it says what the Cursor tools named here are on this machine, and which steps the guard hook leaves to the owner.
 
 # Model the Domain
 

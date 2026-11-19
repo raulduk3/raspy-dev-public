@@ -1,0 +1,36 @@
+{
+  "$schema": "../../../schemas/task/v1.schema.json",
+  "schema": "dev-platform/task@1",
+  "id": 5,
+  "title": "Choose the launch cadence",
+  "kind": "decision",
+  "goal": "G-1",
+  "state": "ready",
+  "brief": "The goals are reviewed when someone remembers. The owner chooses a fixed cadence so that a day of agent work cannot drift from its goal unseen.",
+  "work": {
+    "question": "How often does the owner review the goals?",
+    "options": [
+      {
+        "id": "A",
+        "text": "Weekly"
+      },
+      {
+        "id": "B",
+        "text": "Every two weeks"
+      }
+    ],
+    "recommended": "A",
+    "record": "docs/decisions/0010-goal-cadence.md"
+  },
+  "acceptance": [
+    {
+      "by": "review",
+      "statement": "The decision record is accepted.",
+      "reviewer": "owner"
+    }
+  ],
+  "created": "2026-11-12",
+  "assignee": {
+    "type": "person"
+  }
+}

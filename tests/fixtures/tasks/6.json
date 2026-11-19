@@ -1,0 +1,23 @@
+{
+  "$schema": "../../../schemas/task/v1.schema.json",
+  "schema": "dev-platform/task@1",
+  "id": 6,
+  "title": "Write the welcome email for businesses",
+  "kind": "writing",
+  "goal": "G-1",
+  "state": "ready",
+  "brief": "A new business gets no welcome today. Write the welcome email in the company's voice for the mail template business-welcome.",
+  "work": {
+    "destination": "mail template business-welcome",
+    "form": "email",
+    "audience": "independent service businesses"
+  },
+  "acceptance": [
+    {
+      "by": "review",
+      "statement": "The owner approves the text.",
+      "reviewer": "owner"
+    }
+  ],
+  "created": "2026-11-12"
+}

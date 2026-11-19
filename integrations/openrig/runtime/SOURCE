@@ -1,0 +1,3 @@
+# The OpenRig this platform runs: the stock release from npm (owner, 2026-10-14; the fork retired).
+# source  package  version
+npm @openrig/cli 0.6.10

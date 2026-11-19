@@ -1,7 +1,10 @@
 ---
 name: architect
 description: "Sketch types, signatures, and module structure before code, then stay in the loop while implementation fills in. Use for /architect, 'architect this', 'design this', or non-trivial work where jumping to code would lock in the wrong shape."
+disable-model-invocation: true
 ---
+
+> **On this platform.** This is pstack's `architect` skill (MIT, Lauren Tan; the unmodified source is in `vendor/pstack`). Read [the platform map](../../docs/pstack-platform.md) (installed: `/opt/dev-platform/current/docs/pstack-platform.md`) once per session: it says what the Cursor tools named here are on this machine, and which steps the guard hook leaves to the owner.
 
 # Architect
 
@@ -9,7 +12,7 @@ Design before implementing. Sketch types, function signatures, class shapes, and
 
 ## Start
 
-Open a task list with one entry per phase before starting.
+Open a todolist with one entry per phase before starting.
 
 1. Ground
 2. Sketch
@@ -27,7 +30,9 @@ Skip Phase A only when the work is genuinely greenfield with no surrounding syst
 
 ## Phase B: Sketch
 
-Fan out parallel runners on the design-sketch task. Before launching, write 3-6 concrete criteria for a good design for *this* task; runners see only the task, the criteria are yours for picking. Spawn the runners at once, in parallel, as subagents: one on the **judgment** tier, a second on the **judgment** tier on a different model when `models.md` (the tier map at the root of this skills repository) lists one, and one on the **implementation** tier. If the file or a tier is missing, use the model you are running on and say so. Give each runner `references/runner-prompt.md` as its prompt, the Phase A grounding artifacts, and its own output location (a git worktree where possible, otherwise its own directory), per the **separate-before-serializing-shared-state** principle skill. Each candidate produces a design package shaped per `references/rationale-template.md`. If a runner produces nothing, proceed without it and note the dropout.
+Run the **arena** skill with the design-sketch task and the Phase A grounding artifacts. Pass `references/runner-prompt.md` as each runner's prompt. Each candidate produces a design package shaped per `references/rationale-template.md`.
+
+Take the runners from the `architect runners` line in the `pstack-models.mdc` rule, in place of the `arena runners` line. If the rule or that line is missing, use `judgment-max`, `judgment.2-max`, `implementation-xhigh`. Alias and rejected entries follow the runner rules in the **arena** skill's Phase A.
 
 Design it twice. Require at least two structurally distinct candidates before synthesis, even when the first looks sufficient. This is the **exhaust-the-design-space** principle skill made concrete. Whole-shape alternatives, not point fixes inside one shape.
 
@@ -35,7 +40,7 @@ Screen every candidate against [`references/design-red-flags.md`](references/des
 
 Compare viable candidates on interface depth. Prefer the design that hides more complexity behind a smaller, simpler public surface. A rich interface can keep call chains short by concentrating capability instead of scattering it across layers.
 
-Synthesize one design package. Read every candidate end to end and score each against your criteria, criterion by criterion. Pick as the base the candidate a future maintainer can extend most easily without breaking invariants. Walk each other candidate once more and graft by hand the one or two ideas worth porting, keeping the result coherent under one mental model. When the candidates converge on one shape, ship it; when they diverge wildly, the task was under-specified, so reframe and re-run rather than averaging. The base, the grafts and the rejections populate the rationale's "Synthesis decision" section.
+Arena returns one synthesized design package. The synthesis decision populates the rationale's "Synthesis decision" section.
 
 ## Phase C: Agree (opt-in)
 
@@ -73,7 +78,7 @@ When you scrap:
 1. Re-run the **how** skill over what's been built.
 2. Redesign as if the new constraints had been day-one assumptions, per redesign-from-first-principles.
 3. Subtract before adding, per the **subtract-before-you-add** principle skill. The new sketch should be smaller than the old one before it grows.
-4. Return to Phase B and re-run the runners.
+4. Return to Phase B and re-run arena.
 
 ## Outputs
 
