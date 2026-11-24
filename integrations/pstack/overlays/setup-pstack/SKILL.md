@@ -9,7 +9,7 @@ Write the platform's model file, the one file that sets pstack's model per role 
 
 The skills never name a model. Each role names a **tier slug**, `<tier>[.<n>]-<effort>`: `judgment-max`, `judgment.2-max`, `implementation-xhigh`, `mechanical`. The file's `tier` lines say which model families fill each tier, in order; `.n` picks the nth family, which is how a panel gets a second family. So a skill keeps its own logic about how strong and how deliberate each role should be, and this file alone decides what that means on this machine. A role may still name a concrete slug (`fable-max`, `codex:gpt-5.6-sol-high`, `openrouter:deepseek/deepseek-v4-pro-0813-high`) to pin it.
 
-OpenRouter is the centre of this ecosystem (owner, 2026-10-12): every tier lists its OpenRouter families first, and the Claude and Codex subscriptions last, as the fallbacks for the clients that can only run those. Claude Code and Codex skip the families they cannot run, so a subscription client still resolves to its own family; Pi and the API rig (`docs/api-rig.md`) take the OpenRouter ones.
+OpenRouter is the centre of this ecosystem (owner, 2026-10-12): every tier lists its OpenRouter families first, and the Claude and Codex subscriptions last, as the fallbacks for the clients that can only run those. Claude Code and Codex skip the families they cannot run, so a subscription client still resolves to its own family; Pi takes the OpenRouter ones.
 
 ## Steps
 
@@ -27,10 +27,10 @@ Never write a family you have not confirmed is available. The aliases `inherit-p
 
 **(a) Fill the tiers.** From the detected families, order each tier strongest first:
 
-- `judgment`: the strongest reasoning families. Put a family from a different vendor second, so `.2` gives panels a second opinion. The `advice` role (the API rig's "ask Fable for advice" tool) and `judgment and prose` read this tier, so `claude-fable-5-1` through OpenRouter (`openrouter:anthropic/claude-fable-5.1`) goes first.
+- `judgment`: the strongest reasoning families. Put a family from a different vendor second, so `.2` gives panels a second opinion. The `advice` role (the "ask Fable for advice" tool of a Pi seat) and `judgment and prose` read this tier, so `claude-fable-5-1` through OpenRouter (`openrouter:anthropic/claude-fable-5.1`) goes first.
 - `implementation`: capable, cheaper families for bounded work with a check behind it. On OpenRouter: the strongest DeepSeek coding model first, a cheaper DeepSeek second.
 - `mechanical`: the cheapest family, for triage, formatting and summaries. On OpenRouter: a cheap DeepSeek flash model.
-- `overseer`: the API rig's two overseers (`rig overseer` is `overseer-max`, `rig second overseer` is `overseer.2-max`). The strongest model OpenRouter serves first and the strongest from a different maker second: `rig-shape` refuses a `review` team whose two overseers resolve to one maker.
+- `overseer`: the two overseers of a team on Pi (`rig overseer` is `overseer-max`, `rig second overseer` is `overseer.2-max`). The strongest model OpenRouter serves first and the strongest from a different maker second: `rig-shape` refuses a `review` team whose two overseers resolve to one maker.
 
 Put the OpenRouter families first in every tier and the Claude and Codex families after them, in their own order. `.n` counts only the families the asking runtime can run, so a Claude Code panel still gets a second family when the OpenRouter ones lead.
 
@@ -49,7 +49,7 @@ Drop any default family that was not detected. A tier left empty needs a choice.
 
 ### 4. Validate
 
-Every family on a `tier` line and every concrete slug must be detected. `inherit-parent` and `auto` always pass. After writing, `bin/pstack-model resolve '<role>' --all` must print a model for every role. For the API rig, every `rig ...` role and `advice` must also resolve with `--runtime openrouter` (that runtime takes only OpenRouter families, never a subscription), and every role with `--runtime pi`. If anything fails, stop and ask again.
+Every family on a `tier` line and every concrete slug must be detected. `inherit-parent` and `auto` always pass. After writing, `bin/pstack-model resolve '<role>' --all` must print a model for every role. For Pi seats, every `rig ...` role and `advice` must also resolve with `--runtime openrouter` (that runtime takes only OpenRouter families, never a subscription), and every role with `--runtime pi`. If anything fails, stop and ask again.
 
 ### 5. Write the file
 
@@ -93,7 +93,7 @@ ops start: codex:gpt-6-luna
 engineer start: codex:gpt-6-sol
 ```
 
-The `rig control`, `rig overseer`, `rig second overseer` and `rig worker` lines are the API rig's seats and workers; `rig-shape write <project> review --all pi` and the loop's Pi workers resolve them with `--runtime openrouter`. The `<role> start` lines are the Pi roles' start models; under `--runtime pi` a `codex:` family runs on the OpenAI subscription and a Claude family is never picked, because Pi on Anthropic is metered and only chosen by hand. The loop reads two of these lines for its workers, through `bin/pstack-model --runtime claude`: `feature, refactoring` for implementation tasks and `judgment and prose` for tasks labeled `spec`, `decision`, `privacy` or `security`; `documentation` tasks take the `mechanical` tier. `MODELS.md` states what the tiers are for.
+The `rig control`, `rig overseer`, `rig second overseer` and `rig worker` lines are the Pi seats and workers of a team; `rig-shape write <project> review --all pi` and the loop's Pi workers resolve them with `--runtime openrouter`. The `<role> start` lines are the Pi roles' start models; under `--runtime pi` a `codex:` family runs on the OpenAI subscription and a Claude family is never picked, because Pi on Anthropic is metered and only chosen by hand. The loop reads two of these lines for its workers, through `bin/pstack-model --runtime claude`: `feature, refactoring` for implementation tasks and `judgment and prose` for tasks labeled `spec`, `decision`, `privacy` or `security`; `documentation` tasks take the `mechanical` tier. `MODELS.md` states what the tiers are for.
 
 ### 6. Confirm
 

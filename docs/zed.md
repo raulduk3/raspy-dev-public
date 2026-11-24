@@ -1,12 +1,12 @@
 # Zed on the Mac
 
-Zed on the Mac (laptop) edits files on dev-server with Zed remote development. Claude Code and Codex write code. The Zed built-in agent only reads. This setup implements SDD-SC-16.
+Zed on the Mac (laptop) edits files on dev-server with Zed remote development. Claude Code and Codex write code. The Zed built-in agent only reads (SDD-SC-16).
 
 Zed has no platform guard. Git hooks and server rules still apply (see `docs/source-control.md`).
 
 ## Remote development
 
-The Zed remote server 1.26.2 is installed on dev-server. The Zed app on the Mac must run the same version.
+The Zed app on the Mac must run the same version as the Zed remote server on dev-server.
 
 1. Open Zed on the Mac.
 2. Run the action `projects: open remote` (command palette).

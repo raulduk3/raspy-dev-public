@@ -42,22 +42,21 @@ class RoleLaunch(unittest.TestCase):
         self.conversation = conversations.create(self.store, 'engineer', 'Fixture', formation=True,
                                                  workspace=str(self.project))
         self.home = conversations.path_for(self.store, self.conversation['id'])
-        self.profiles = self.root / 'profiles'
-        self.profile = self.profiles / 'pi' / 'openai-alpha'
+        # The Pi login folder that the root launcher hands to one session (--agent-dir).
+        self.profile = self.root / 'handed-login'
+        self.profile.mkdir(mode=0o700)
         self.agents = self.root / 'agents'
         (self.agents / 'engineer').mkdir(parents=True)
         (self.agents / 'engineer/identity.md').write_text('ENGINEER_LAUNCH_FIXTURE\n')
-        self.registry = self.root / 'registry.json'
 
     def configure_profile(self):
-        self.profile.mkdir(parents=True, mode=0o700)
         (self.profile / 'auth.json').write_text(json.dumps(SYNTHETIC))
         (self.profile / 'settings.json').write_text(json.dumps({'defaultProvider': 'openai-codex',
                                                                  'defaultModel': 'gpt-5.5'}))
 
     def plan(self, **overrides):
-        options = dict(state_root=self.state, registry=self.registry, account='openai-alpha',
-                       profiles_root=self.profiles, agents_root=self.agents)
+        options = dict(state_root=self.state, account='openai-alpha', provider='openai',
+                       agent_dir=self.profile, agents_root=self.agents)
         options.update(overrides)
         return role_launch.plan(self.conversation['id'], **options)
 
@@ -76,10 +75,12 @@ class RoleLaunch(unittest.TestCase):
             self.assertNotIn('PERPLEXITY_API_KEY', env)
             self.assertIn('dev-platform-perplexity secret was not handed', state)
 
-    def test_plan_requires_explicit_account_configured_profile_and_identity(self):
-        with self.assertRaisesRegex(ValueError, 'choose an account'):
+    def test_plan_requires_a_handed_login_a_named_account_and_an_identity(self):
+        with self.assertRaisesRegex(ValueError, 'starts through the launcher'):
+            self.plan(agent_dir=None)
+        with self.assertRaisesRegex(ValueError, 'name the account the launcher resolved'):
             self.plan(account=None)
-        with self.assertRaisesRegex(ValueError, 'profile_missing'):
+        with self.assertRaisesRegex(ValueError, 'ol-login openai-alpha pi'):
             self.plan()
         self.configure_profile()
         auth_before = (self.profile / 'auth.json').read_bytes()
@@ -101,28 +102,23 @@ class RoleLaunch(unittest.TestCase):
         self.assertEqual(env['PI_CODING_AGENT_DIR'], str(self.profile))
         self.assertFalse(any(k.startswith(('ANTHROPIC_', 'OPENAI_', 'AI_')) for k in env))
         self.assertNotIn('access', json.dumps(result))
-        # Explicit model overrides the profile default; the registry's selection replaces --account.
+        # Explicit model overrides the profile default.
         self.assertEqual(self.plan(model='gpt-6-luna')[0]['model'], 'openai-codex/gpt-6-luna')
-        self.registry.write_text(json.dumps({'version': 1, 'selected': 'openai-alpha', 'bindings': {}}))
-        self.assertEqual(self.plan(account=None)[0]['account']['account'], 'openai-alpha')
-        with self.assertRaisesRegex(ValueError, 'anthropic-alpha is profile_missing'):
-            self.plan(account='anthropic-alpha')
         # Without an installed identity the platform's own agents/<agent>/identity.md is used.
         shutil.rmtree(self.agents / 'engineer')
         fallback = self.plan(agents_root=self.root / 'no-agents')[0]['launch']['identityFile']
         self.assertEqual(fallback, str(ROOT / 'agents/engineer/identity.md'))
         # Every role now ships a contract, so a personal conversation plans too.
         assistant = conversations.create(self.store, 'assistant', 'Personal fixture')
-        personal, _ = role_launch.plan(assistant['id'], state_root=self.state, registry=self.registry,
-                                       account='openai-alpha', profiles_root=self.profiles,
-                                       agents_root=self.agents)
+        personal, _ = role_launch.plan(assistant['id'], state_root=self.state, account='openai-alpha',
+                                       provider='openai', agent_dir=self.profile, agents_root=self.agents)
         self.assertEqual(personal['launch']['identityFile'], str(ROOT / 'agents/assistant/identity.md'))
         self.assertEqual(personal['scope'], {'kind': 'personal'})
         # A role with no contract anywhere still refuses rather than launching blind.
         with mock.patch.object(role_launch, 'PLATFORM', self.root / 'no-platform'):
             with self.assertRaisesRegex(ValueError, 'no identity file for assistant'):
-                role_launch.plan(assistant['id'], state_root=self.state, registry=self.registry,
-                                 account='openai-alpha', profiles_root=self.profiles,
+                role_launch.plan(assistant['id'], state_root=self.state, account='openai-alpha',
+                                 provider='openai', agent_dir=self.profile,
                                  agents_root=self.root / 'no-agents')
 
     def test_journal_is_configured_for_every_role(self):
@@ -152,8 +148,8 @@ class RoleLaunch(unittest.TestCase):
             engineering, _ = self.plan()
             self.assertEqual(engineering['journal'], str(vault))
             personal_id = conversations.create(self.store, 'assistant', 'Personal fixture')['id']
-            personal, env = role_launch.plan(personal_id, state_root=self.state, registry=self.registry,
-                                             account='openai-alpha', profiles_root=self.profiles,
+            personal, env = role_launch.plan(personal_id, state_root=self.state, account='openai-alpha',
+                                             provider='openai', agent_dir=self.profile,
                                              agents_root=self.agents)
             self.assertEqual(personal['journal'], str(vault))
             self.assertEqual(json.loads(env['DEV_PLATFORM_ROLE_LAUNCH'])['journalRoot'], str(vault))
@@ -167,8 +163,7 @@ class RoleLaunch(unittest.TestCase):
         handed = self.root / 'handed'
         handed.mkdir()
         (handed / 'auth.json').write_text(json.dumps(SYNTHETIC))
-        result, env = self.plan(registry=self.root / 'no-registry.json', profiles_root=None,
-                                account='openai-bravo', provider='openai', agent_dir=handed)
+        result, env = self.plan(account='openai-bravo', provider='openai', agent_dir=handed)
         self.assertEqual(result['model'], 'openai-codex/gpt-6-sol')       # engineer's start model
         self.assertEqual(env['PI_CODING_AGENT_DIR'], str(handed))
         self.assertEqual(result['launch']['accountRef'], 'openai-bravo:pi')
@@ -285,9 +280,9 @@ class RoleLaunch(unittest.TestCase):
             env = {key: os.environ[key] for key in ('PATH', 'LANG', 'DEV_PLATFORM_ACCOUNTS_TEMPLATE', 'OL_ACCOUNTS_STATE') if key in os.environ}
             env.update(HOME=str(self.root / 'home'), TERM='xterm-256color')
             os.execve(sys.executable, [sys.executable, str(ROOT / 'bin/ai-role'), '--state-root', str(self.state),
-                                       '--registry', str(self.registry), '--profiles-root', str(self.profiles),
                                        '--agents-root', str(self.agents), 'launch', self.conversation['id'],
-                                       '--account', 'openai-alpha', '--offline'], env)
+                                       '--account', 'openai-alpha', '--provider', 'openai',
+                                       '--agent-dir', str(self.profile), '--offline'], env)
         fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack('HHHH', 40, 220, 0, 0))
         output, sent, status = b'', False, None
         deadline = time.monotonic() + 30

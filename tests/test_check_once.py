@@ -93,6 +93,23 @@ class CheckSources(unittest.TestCase):
         result = self.check(expected=2)
         self.assertIn('scripts/check', result.stdout)
 
+    def test_source_names_the_check_and_hash_gives_the_pass_record_and_neither_runs_it(self):
+        self.run_cmd('bash', HOOK, '--source', expected=2)
+        self.script('scripts/check', 'scripts')
+        self.commit()
+        self.assertEqual(self.run_cmd('bash', HOOK, '--source').stdout, 'scripts/check\n')
+        self.script('bin/check', 'bin')
+        self.assertEqual(self.run_cmd('bash', HOOK, '--source').stdout, 'bin/check\n')
+        (self.tmp / 'env.d').mkdir()
+        (self.tmp / 'env.d/repo.sh').write_text("export DEV_PLATFORM_CHECK='make all-checks'\n")
+        self.assertEqual(self.run_cmd('bash', HOOK, '--source').stdout, 'make all-checks\n')
+        (self.tmp / 'env.d/repo.sh').unlink()
+        digest = self.run_cmd('bash', HOOK, '--hash').stdout
+        self.assertEqual(self.ran(), [])
+        self.check()
+        record = Path(self.run_cmd('git', 'rev-parse', '--path-format=absolute', '--git-path', 'dev-platform/check-pass').stdout.strip())
+        self.assertEqual(record.read_text(), digest)
+
     def test_failing_scripts_check_is_not_cached(self):
         path = self.repo / 'scripts/check'
         path.parent.mkdir()

@@ -1,7 +1,6 @@
 """Real harmless supervisor/process probes: never touch installed loop records."""
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 import time

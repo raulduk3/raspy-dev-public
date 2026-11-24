@@ -1,6 +1,5 @@
 """A rig the owner starts himself may run paid seats; nothing else asks for that approval."""
 from pathlib import Path
-import os
 import subprocess
 import sys
 import tempfile

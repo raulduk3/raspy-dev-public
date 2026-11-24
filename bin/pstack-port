@@ -13,7 +13,8 @@ Her text stays as she wrote it. A port makes only these changes:
     bin/pstack-model resolves the slug to a model and effort for the runtime at hand;
   - one platform line after the frontmatter points at docs/pstack-platform.md, the map from
     Cursor's tools to this platform's;
-  - files under integrations/pstack/overlays/<skill>/ replace the vendored file of the same path.
+  - files under integrations/pstack/overlays/<skill>/ replace the vendored file of the same path;
+  - the paths in LEFT_OUT are not copied: code of hers that nothing on this platform calls.
 Skills in PARKED are not ported; the map says why. integrations/pstack/ported.txt lists the rest.
 """
 from pathlib import Path
@@ -31,6 +32,9 @@ PARKED = {
     'make-bot-ui': 'drives Cursor Automations webhooks, which this platform does not have',
 }
 RENAMED = {'poteto-mode': 'dev-plat'}
+# Paths of a vendor skill that the port leaves out. The watcher serves only her Babysit and
+# Shipping playbooks, which are stubs here (integrations/pstack/overlays/poteto-mode/playbooks).
+LEFT_OUT = {'poteto-mode': ('scripts/watch-pr',)}
 MARKDOWN_SUBS = (('poteto-mode', 'dev-plat'), ('poteto-agent', 'dev-plat-agent'))
 # Her defaults, by the tier they stand for. Her panels pair a first and second judgment family
 # with an implementation family; `.2` keeps that second family distinct.
@@ -91,6 +95,8 @@ def build(target):
         overlay = OVERLAYS / source.name
         if overlay.is_dir():
             shutil.copytree(overlay, dest, dirs_exist_ok=True, ignore=IGNORE)
+        for rel in LEFT_OUT.get(source.name, ()):  # A path that the vendor copy lost stops the port here.
+            shutil.rmtree(dest / rel) if (dest / rel).is_dir() else (dest / rel).unlink()
         adapt(dest / 'SKILL.md', name, source.name)
         names.append(name)
     return names

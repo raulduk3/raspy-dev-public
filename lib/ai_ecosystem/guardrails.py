@@ -10,6 +10,8 @@ What a home gets, all pointing into the activated release so an activation updat
   ~/.claude/skills/NAME, ~/.codex/skills/NAME, ~/.agents/skills/NAME
         the owner: a link per platform skill. A role: the session entry (skills/develop) and
         the skills agents/skills.json gives it, the same table its Pi sessions load from
+  ~/.claude/agents/ROLE.md             the owner: a link per agents/ROLE/role.md, so that
+        `claude --agent ROLE` starts a main session in that role
   ~/.codex/rules/default.rules         a link to hooks/codex.rules
   ~/.codex/config.toml                 sandbox_mode = "workspace-write" when it says nothing
   ~/.claude/CLAUDE.md, ~/.claude-accounts/*/CLAUDE.md, ~/.codex/AGENTS.md, ~/.pi/agent/APPEND_SYSTEM.md
@@ -69,6 +71,8 @@ def wanted_skills(release, role=None):
         folders = [release / 'skills/develop', *(release / rel for rel in table[role])]
     else:
         folders = sorted((release / 'skills').iterdir()) if (release / 'skills').is_dir() else []
+        # The roles are roles of the owner's own account: `claude --agent engineer` needs the skill that its role file names.
+        folders += sorted((release / 'agents').glob('*/skills/*'))
     return {folder.name: folder for folder in folders if (folder / 'SKILL.md').is_file()}
 
 
@@ -95,6 +99,39 @@ def link_skills(home, release, role=None):
         for path in base.iterdir():
             if path.is_symlink() and _ours(os.readlink(path)) and path.name not in skills:
                 path.unlink()              # a platform skill that is gone, or another role's
+    return notes
+
+
+def wanted_agents(release):
+    """role -> role file, for each role of the release that has a role.md."""
+    return {path.parent.name: path for path in sorted((release / 'agents').glob('*/role.md'))}
+
+
+def link_agents(home, release):
+    """Make ~/.claude/agents/ROLE.md a link to each role file; returns notes for what was left alone."""
+    notes = []
+    agents = wanted_agents(release)
+    base = home / '.claude/agents'
+    if agents:
+        base.mkdir(parents=True, exist_ok=True)
+    for role, target in agents.items():
+        path = base / f'{role}.md'
+        if path.is_symlink():
+            if os.readlink(path) == str(target):
+                continue
+            if not _ours(os.readlink(path)):
+                notes.append(f'{path}: a link of its own; left alone')
+                continue
+            path.unlink()
+        elif path.exists():
+            notes.append(f'{path}: a file of its own; left alone')
+            continue
+        path.symlink_to(target)
+    if base.is_dir():
+        for path in base.iterdir():
+            if path.is_symlink() and _ours(os.readlink(path)) and os.readlink(path).endswith('/role.md') \
+                    and path.name[:-3] not in agents:
+                path.unlink()              # a role file that is gone
     return notes
 
 
@@ -292,6 +329,8 @@ def prompt_files(home):
 
 def install(home, release, role=None):
     notes = link_skills(home, release, role)
+    if not role:
+        notes += link_agents(home, release)
     notes += codex_rules(home, release)
     codex_config(home)
     notes += codex_title_hook(home, release)
@@ -311,6 +350,10 @@ def status(home, release, role=None):
             path = home / rel / name
             if not (path.is_symlink() and os.readlink(path) == str(folder)):
                 out.append(f'{path}: not linked to {folder}')
+    for name, target in ({} if role else wanted_agents(release)).items():
+        path = home / '.claude/agents' / f'{name}.md'
+        if not (path.is_symlink() and os.readlink(path) == str(target)):
+            out.append(f'{path}: not linked to {target}')
     rules = home / '.codex/rules/default.rules'
     if not (rules.is_symlink() and os.readlink(rules) == str(release / 'hooks/codex.rules')):
         out.append(f'{rules}: not the platform rules')

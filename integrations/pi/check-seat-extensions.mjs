@@ -1,4 +1,4 @@
-// Offline check of the API rig's Pi seat extensions: the guard refuses what the platform
+// Offline check of the Pi seat extensions: the guard refuses what the platform
 // guard refuses and allows the rest; the advice tool resolves its model from the model file
 // and builds an OpenRouter request without a network call. Run: node integrations/pi/check-seat-extensions.mjs
 import assert from "node:assert/strict";

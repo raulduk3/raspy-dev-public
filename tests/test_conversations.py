@@ -59,11 +59,11 @@ class Conversations(unittest.TestCase):
                 '--project', 'owner/example', '--workspace', str(repository), '--repos', str(config))
             self.assertEqual(engineering['scope']['kind'], 'project')
             self.assertNotEqual(engineering['scope']['project_id'], 'owner/example')
-            run('scan', '--home', str(home), '--no-openclaw')
+            run('scan', '--home', str(home))
             record = run('list', '--json')['sessions'][0]
             run('conversation', 'bind', engineering['id'], record['id'], '--expect-revision', str(record['revision']), ok=False)
             run('conversation', 'bind', engineer['id'], record['id'], '--expect-revision', str(record['revision']))
-            run('scan', '--home', str(home), '--no-openclaw')
+            run('scan', '--home', str(home))
             result = run('conversation', 'show', engineer['id'])
             self.assertEqual(result['native_sessions'][0]['id'], record['id'])
             self.assertEqual(result['native_sessions'][0]['conversation_id'], engineer['id'])

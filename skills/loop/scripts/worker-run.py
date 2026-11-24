@@ -85,7 +85,7 @@ def main():
     names.extend(k for k in os.environ if k.startswith('DEV_SESSION_'))
     names.extend(os.environ.get('DEV_PLATFORM_ENV_PASS', '').split())
     if os.environ.get('LOOP_RUNTIME') == 'pi':
-        # A Pi worker on the API rig: its one key, by name, never on the command line.
+        # A Pi worker: its one key, by name, never on the command line.
         names.extend(['OPENROUTER_API_KEY', 'LOOP_WORKER_MAX_TURNS', 'LOOP_WORKER_TOKEN_LIMIT',
                       'LOOP_WORKER_COST_LIMIT', 'LOOP_WORKER_FIRST_CHANGE', 'LOOP_WORKER_BASE'])
     env = {k: os.environ[k] for k in names if k in os.environ}

@@ -10,14 +10,14 @@ What the software must do, stated as requirements a reader can verify.
 | Target version      | The release this document describes.                                                                                                 |
 | Scope               | What the software covers and what it does not.                                                                                       |
 | Authority           | This document decides what the software does. Where code and this document disagree, one is wrong; say which, with evidence.         |
-| Companion documents | [TDD.md](TDD.md) states how each requirement is met. [SPEC-AMENDMENTS.md](SPEC-AMENDMENTS.md) records each change to either.         |
-| Change control      | A pull request cites an accepted decision under `docs/decisions/`, edits the exact lines, and appends a row to the amendment ledger. |
+| Companion documents | [TDD.md](TDD.md) states how each requirement is met.                                                                                 |
+| Change control      | Only the owner's word changes a sentence. A change edits the exact lines. Git records the change. No decision record is written.     |
 
 ## Normative language
 
 - "must" states a requirement.
 - "must not" states a prohibition.
-- No other word makes a requirement. A proposal that is not decided is a decision record with `Status: proposed` under `docs/decisions/` (or a `decision` issue where the repository uses an issue tracker) and does not appear here.
+- No other word makes a requirement. A proposal that is not decided does not appear here. It is a question for the owner, or a task for the person who answers it.
 
 ## Conventions
 
@@ -42,4 +42,4 @@ Example, not part of the specification:
 
 ## 1. First area
 
-No requirements yet. The first accepted decisions add them here.
+No requirements yet. The first changes that the owner accepts add them here.

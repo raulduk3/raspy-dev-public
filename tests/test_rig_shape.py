@@ -70,7 +70,7 @@ class RigShape(unittest.TestCase):
                          {'lead': 'claude-code', 'overseer': 'claude-code'})
         self.assertIn('(lead=claude-code, overseer=claude-code)', self.shape('history', 'owner/tetris'))
 
-    def test_the_api_rig_puts_every_seat_on_pi_with_its_openrouter_model(self):
+    def test_every_seat_on_pi_gets_its_openrouter_model(self):
         out = self.shape('write', 'owner/tetris', 'review', '--all', 'pi')
         spec = yaml.safe_load((self.engagements / 'tetris-game' / 'rig.yaml').read_text())
         seats = {m['id']: (m['runtime'], m['model']) for pod in spec['pods'] for m in pod['members']}

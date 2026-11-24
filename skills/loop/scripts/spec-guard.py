@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """The fold's specification guard for one worker branch.
 
-  spec-guard.py <checkout> <rig> <commit> <spec single|domains> <decisions open|frozen> <spec-task 0|1>
+  spec-guard.py <checkout> <rig> <commit> <spec single|domains> <decisions none|frozen|open> <spec-task 0|1>
 
 The task's body (the text `loop-tasks.py view` gives) comes on stdin. Prints one problem a line
 and exits 1 when the branch may not fold; prints nothing and exits 0 otherwise.
 
-- decisions=frozen: no task adds, changes or deletes a file under docs/decisions/ or adds a
-  SPEC-AMENDMENTS.md, a spec task included.
+- decisions=none or frozen: no task adds, changes or deletes a file under docs/decisions/ or adds a
+  SPEC-AMENDMENTS.md, a spec task included. With decisions=none a deletion is allowed.
 - spec=domains, a task that is not a spec task: under docs/spec/ it may change only the `status:`,
   `tests:` and `code:` metadata lines of the items its body cites (`SDD-…`, `TDD-…`), and the
   generated docs/spec/index.json. A spec task may edit docs/spec/<domain>/ freely.
@@ -33,13 +33,15 @@ def ident(text):
     return text.rstrip('.,;:)')
 
 
-def frozen_problems(names):
+def record_problems(names, decisions):
     out = []
     for status, path in names:
+        if decisions == 'none' and status == 'D':
+            continue   # the owner's removal of the old records
         if path.startswith('docs/decisions/'):
-            out.append(f'{path}: decision records are read-only (decisions=frozen)')
+            out.append(f'{path}: decision records are read-only (decisions={decisions})')
         elif status == 'A' and (path == 'SPEC-AMENDMENTS.md' or path.endswith('/SPEC-AMENDMENTS.md')):
-            out.append(f'{path}: an amendment ledger is refused (decisions=frozen); git records spec changes')
+            out.append(f'{path}: an amendment ledger is refused (decisions={decisions}); git records spec changes')
     return out
 
 
@@ -95,7 +97,7 @@ def main(argv):
     base = git(checkout, 'merge-base', rig, commit).strip()
     names = [tuple(line.split('\t', 1)) for line in
              git(checkout, 'diff', '--name-status', '--no-renames', base, commit).splitlines() if '\t' in line]
-    problems = frozen_problems(names) if decisions == 'frozen' else []
+    problems = record_problems(names, decisions) if decisions in ('none', 'frozen') else []
     if spec == 'domains' and spec_task != '1':
         cited = {ident(m) for m in CITED.findall(sys.stdin.read())}
         problems += domain_problems(checkout, base, commit, names, cited)

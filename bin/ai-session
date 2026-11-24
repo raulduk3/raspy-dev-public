@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local session index for Claude Code, Codex and VS Code, plus preserved OpenClaw sessions. See docs/session-index.md."""
+"""Local session index for Claude Code, Codex and Pi sessions. See docs/session-index.md."""
 import sys
 from pathlib import Path
 

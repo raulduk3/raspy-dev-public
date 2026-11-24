@@ -2,8 +2,7 @@
 
 The model this builds on is in `docs/how-it-connects.md`.
 
-Every worker seat works in its own Git worktree, on the branch the loop cut for its
-issue. Seats join from a control rig that the owner starts once per project. This
+Every worker seat works in the loop slot of its task, detached at the goal branch. Seats join from a control rig that the owner starts once per project. This
 reuses the loop skill's branch contract; it does not add a second one.
 
 ## The shape
@@ -12,7 +11,7 @@ reuses the loop skill's branch contract; it does not add a second one.
 | --- | --- | --- | --- |
 | Control (`control.lead`) | Claude Code, native default home | the team folder `~/dev/teams/<team>`, outside the repository | none |
 | Overseer (`review.overseer`) | Codex, native default home | the same team folder | none; reads with `git -C` |
-| Worker (`workers.issue-N`) | Claude Code or Codex, any verified account | the loop's worktree for issue N | `type/slug-N`, cut from the goal's rig branch |
+| Worker (`workers.issue-N`) | Claude Code or Codex on any verified account, or Pi on the OpenRouter key | the loop's slot for task N | none: the slot is detached at the goal branch |
 
 Control and overseer stay out of the repository on purpose. OpenRig writes guidance
 blocks into the folder's `CLAUDE.md` or `AGENTS.md`. Repositories track those files, so
@@ -40,16 +39,16 @@ mkdir -p ~/dev/teams/<team> && dev-workspace start engineer --cwd ~/dev/teams/<t
 ```
 
 Let the loop give each dispatched issue a seat instead of a headless worker. The loop
-still cuts the worktree and writes `.worker-brief.md`. `LOOP_SEAT_RUNTIME` picks `claude`
-(the default) or `codex`. A Claude seat uses the loop's selected account. A Codex seat uses
+still prepares the slot and writes `.worker-brief.md`. `LOOP_SEAT_RUNTIME` picks `claude`
+(the default), `codex` or `pi`. A Claude seat uses the loop's selected account. A Codex seat uses
 `LOOP_SEAT_ACCOUNT`, or its native home when that is unset, because the loop's own account
-selection accepts only Claude accounts.
+selection accepts only Claude accounts. A Pi seat runs on the OpenRouter key of the rig's daemon.
 
 ```bash
 LOOP_SEAT_RIG=development-engineer dev-loop go <owner/repo>
 ```
 
-A worktree the loop already cut can take a seat directly:
+A slot that the loop already holds for a task can take a seat directly:
 
 ```bash
 dev-workspace add-worker claude --rig development-engineer --cwd <worktree> --account anthropic
@@ -83,16 +82,10 @@ dev-workspace remove-worker --rig development-engineer --cwd <worktree>
 
 - Professional repositories stay refused, for workers as for any seat. OpenRig's blocks in
   a tracked `CLAUDE.md` or `AGENTS.md` would be one careless `git add` from a commit.
-- Control and overseer run on the native default homes. Pinning them per account needs a
-  two-member renderer that does not exist yet; workers are already pinnable.
+- Control and overseer run on the native default homes. Only a worker seat takes an account.
 - The loop does not see seats as running workers. `status` and `collect` count only
   headless workers, so a CYCLE report undercounts, and the cap ignores seats. The plan's
   local cap still bounds how many issues one `go` dispatches. Fold's only sign of a live
   seat is its guidance block in the worktree.
 - Every seat starts by asking permission to run `rig whoami`, from OpenRig's boot hint.
   That prompt is the owner's to answer.
-
-Proven 2026-09-24 and compatibility-checked on OpenRig 0.6.1 2026-09-29 on a scratch personal repository: the rig started with its three pods,
-a worker seat joined on the alpha Anthropic home, and after `remove-worker` the worktree's
-status was empty. The loop's seat dispatch is covered by tests through `resume`, not yet by
-a live `dev-loop go` against real issues.

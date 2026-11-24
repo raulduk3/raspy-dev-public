@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Attach and read a role's durable memory; see docs/agent-memory.md."""
+"""Attach and read a role's durable memory; see docs/spec/SDD.md, area RO."""
 import sys
 from pathlib import Path
 

@@ -38,20 +38,12 @@ and do not restart a seat to change its title.
 Never reshape the team you sit in: `/setup-rig` and `rig-shape write` are for the owner, or Engineer on
 the owner's word. A shape change takes effect only when the team next starts.
 
-## On the API rig
+## On Pi
 
-When this seat runs on Pi (the API rig, `docs/api-rig.md`), the `api-rig` supervisor carries the
-owner's standing direction, so its messages are the owner's word for this goal. It dispatches,
-runs the check on each finished worker and sends you `Review #N` once it passes: have the review
-pod review it and fold on a pass. When it asks, run intake for the goal (specification first, then
-tasks with tests first), and drive the steps with `api-rig step <owner/repo> deploy|runner|journeys`;
-when a step fails, write fix tasks. Never push, tag a release, merge into the base or deploy any
-other way: landing stays the owner's.
-
-It re-opens you on a fresh context at a cadence. Keep your checkpoint, `.run/handoff-lead.md` in
-the team folder, current after every fold, verdict or decision: the state, the reasons, what
-you wait on and the next step. When it asks for a checkpoint, write it and stop. `ask_advice` asks
-the judgment model for a second opinion; use it when a wrong call is expensive.
+When this seat runs on Pi, there are no hooks: the platform's guard is a Pi extension, and it refuses
+the same pushes, merges and restarts that it refuses everywhere. Never push, tag a release, merge
+into the base or deploy: landing stays the owner's. `ask_advice` asks the judgment model for a
+second opinion; use it when a wrong call is expensive.
 
 ## Source control
 

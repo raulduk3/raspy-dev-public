@@ -43,11 +43,9 @@ class Fixture(unittest.TestCase):
                         GIT_COMMITTER_NAME='Test', GIT_COMMITTER_EMAIL='test@example.invalid',
                         DEV_PLATFORM_REPOS=str(self.config / 'repos.conf'),
                         DEV_PLATFORM_BRIEF=str(self.config / 'absent.conf'),
-                        DEV_PLATFORM_PERSONAL=str(self.config / 'personal.conf'),
                         DEV_PLATFORM_ENV_DIR=str(self.config / 'env.d'),
                         LOOP_STATE_DIR=str(self.base / 'state'),
                         GH_CALLS=str(self.base / 'gh.calls'))
-        (self.config / 'personal.conf').write_text('')
         self.env['PATH'] = str(self.fakebin) + os.pathsep + self.env['PATH']
         self.fake_accounts()
         self.repo = self.base / 'repo'
@@ -101,8 +99,8 @@ class Fixture(unittest.TestCase):
         check.chmod(0o755)
 
     def configure(self, base='main', personal=False, identity='owner', path=None, extra=''):
-        (self.config / 'repos.conf').write_text(f'test/repo\t{path or self.repo}\t{identity}\t{base}{extra}\n')
-        (self.config / 'personal.conf').write_text(str(self.repo) + '\n' if personal else '')
+        tier = '\ttier=2' if personal and 'tier=' not in extra else ''
+        (self.config / 'repos.conf').write_text(f'test/repo\t{path or self.repo}\t{identity}\t{base}{tier}{extra}\n')
 
     def calls(self, cwd=None):
         gitdir = self.run_cmd('git', 'rev-parse', '--path-format=absolute', '--git-path', 'calls', cwd=cwd).stdout.strip()
@@ -337,8 +335,7 @@ class LoopTests(Fixture):
         self.setup_remote()
         alias = self.base / 'repo-alias'
         alias.symlink_to(self.repo, target_is_directory=True)
-        self.configure(base='', path=alias)
-        (self.config / 'personal.conf').write_text(str(alias) + '\n')
+        self.configure(base='', path=alias, personal=True)
         self.loop('start', RIG)
         self.assertEqual((self.ctl() / 'rig-base').read_text().strip(), 'main')
 
@@ -348,8 +345,7 @@ class LoopTests(Fixture):
         self.run_cmd('git', 'worktree', 'add', '-qb', 'test/linked', linked)
         alias = self.base / 'linked-alias'
         alias.symlink_to(linked, target_is_directory=True)
-        self.configure(base='', path=alias)
-        (self.config / 'personal.conf').write_text(str(alias) + '\n')
+        self.configure(base='', path=alias, personal=True)
         self.loop('start', RIG)
         self.assertEqual((self.ctl() / 'rig-base').read_text().strip(), 'main')
 
@@ -528,54 +524,15 @@ class LocalLoopTests(Fixture):
     def in_owner_terminal(self, *args):
         return LoopTests.in_owner_terminal(self, *args)
 
-    def engineer_agent(self):
-        """Stands in for dev-server's `agent`: records how engineer was launched, then exits."""
-        record = self.base / 'agent.json'
-        agent = self.fakebin / 'engineer-agent'
-        agent.write_text('#!/usr/bin/env python3\nimport json, os, sys\n'
-                         f'open({str(record)!r}, "w").write(json.dumps({{"argv": sys.argv[1:], "cwd": os.getcwd(), '
-                         '"account": os.getenv("OL_ACCOUNT"), "model": os.getenv("OL_MODEL"), "portal": os.getenv("OL_PORTAL")}))\n')
-        agent.chmod(0o755)
-        return record, dict(self.env, LOOP_WORKER_AS='engineer', LOOP_AGENT=str(agent))
-
-    def test_engineer_works_in_a_shared_clone_and_its_commits_fold_back(self):
-        self.loop('start', RIG)
-        record, env = self.engineer_agent()
-        self.loop('go', 'only', '1', env=env)
-        wt = self.repo / '.claude/worktrees/slot-1'
-        self.assertTrue((wt / '.git').is_dir(), "engineer's working copy is a clone, not a worktree")
-        self.assertTrue((wt / '.git/objects/info/alternates').exists(), 'a shared clone, not a full copy')
-        self.assertEqual((wt / '.worker-issue').read_text().strip(), '1')
-        self.assertEqual(self.run_cmd('git', 'remote', cwd=wt).stdout.strip(), '', 'the clone has no way back to the checkout')
-        self.assertNotIn(str(wt), self.run_cmd('git', 'worktree', 'list').stdout)
-        for _ in range(100):
-            if record.exists(): break
-            time.sleep(0.05)
-        launched = json.loads(record.read_text())
-        self.assertEqual(launched['argv'][:3], ['engineer', str(wt), '--'])
-        self.assertNotIn('--model', launched['argv'], 'the launcher gives the harness its model')
-        self.assertTrue(launched['model'].startswith('claude-'))
-        self.assertEqual(launched['account'], 'anthropic-bravo')
-        self.assertEqual(launched['portal'], 'desk')
-        (wt / 'source').write_text('by engineer\n')
-        self.run_cmd('git', 'commit', '-qam', 'feat(game): rules', cwd=wt)
-        (wt / '.worker-pr.md').write_text('## What changed and why\n\nRules.\n\nCloses #1\n')
-        self.assertIn('ready for review', self.loop('status').stdout)
-        self.assertIn('folded', self.loop('fold', '1').stdout)
-        self.assertFalse(wt.exists())
-        self.assertIn('rules', self.run_cmd('git', 'log', '--format=%s', 'feat/work').stdout)
-
     def test_drop_throws_a_worker_away(self):
         self.loop('start', RIG)
-        record, env = self.engineer_agent()
-        self.loop('go', 'only', '1', env=env)
+        # A start by hand: the slot and the brief are ready and the loop starts no worker.
+        self.loop('go', 'only', '1', env=dict(self.env, LOOP_RUNTIME='hand'))
         wt = self.repo / '.claude/worktrees/slot-1'
-        for _ in range(100):
-            if record.exists(): break
-            time.sleep(0.05)
-        time.sleep(0.3)
+        self.assertEqual((wt / '.worker-issue').read_text().strip(), '1')
         self.assertIn('dropped', self.loop('drop', '1').stdout)
-        self.assertFalse(wt.exists())
+        self.assertTrue(wt.exists(), 'a slot stays for the next task')
+        self.assertFalse((wt / '.worker-issue').exists())
         self.assertEqual(self.run_cmd('git', 'branch', '--list', 'feat/*-1').stdout.strip(), '')
         self.assertIn('no worker', self.loop('drop', '1').stdout)
 
@@ -876,6 +833,7 @@ class LocalLoopTests(Fixture):
         self.assertEqual(record['dollar_cap'], '6')
 
     def test_a_task_waits_until_the_owner_accepts_its_decision(self):
+        self.configure(base='develop', personal=True, identity='local', extra='\tdecisions=open')
         decisions = self.repo / 'docs/decisions'
         decisions.mkdir(parents=True)
         (decisions / '0000-template.md').write_text('# NNNN. Title\n\n- Status: proposed\n')
@@ -905,6 +863,41 @@ class LocalLoopTests(Fixture):
                                            'See docs/decisions/0009-nothing.md.\n')
         self.commit()
         self.assertIn('#7 waits (decision 0009 is missing)', self.loop('tasks', 'list').stdout)
+
+    def test_with_no_decision_record_a_cited_decision_gates_nothing_and_fold_refuses_a_record(self):
+        """decisions=none, the default of a registered line: old records are history."""
+        decisions = self.repo / 'docs/decisions'
+        decisions.mkdir(parents=True)
+        (decisions / '0002-refunds.md').write_text('# 0002. Refunds within 30 days\n\n- Status: proposed\n')
+        tasks = self.repo / 'docs/tasks'
+        (tasks / '5-refunds.md').write_text('# Refunds\n\nStatus: ready\nLabels: spec\nScope: docs,refunds\nDepends on: none\n\n'
+                                           'Decision: 0002\n\nBuild the refund page.\n')
+        (tasks / '6-terms.md').write_text('# Terms page\n\nStatus: ready\nLabels: legal\nScope: terms\nDepends on: none\n')
+        self.commit()
+        self.assertIn('decisions=none', self.loop('tier').stdout)
+        env = dict(self.env, LOOP_GOVERNED_LABELS='legal')
+        listed = self.loop('tasks', 'list', env=env).stdout
+        self.assertIn('#5 ready Refunds', listed)
+        self.assertIn("#6 waits (a legal task needs the owner's word) Terms page", listed)
+        self.loop('start', RIG)
+        env = dict(self.env, DEV_WORKSPACE=str(self.workspace), LOOP_SEAT_RIG='engineer-repo')
+        self.loop('go', 'only', '5', env=env)
+        slot = self.slot_of(5)
+        self.assertIn('keeps no decision record', (slot / '.worker-brief.md').read_text())
+        (slot / 'refunds').write_text('page\n')
+        (slot / 'docs/decisions/0003-new.md').write_text('# 0003. New\n\n- Status: accepted\n')
+        (slot / 'docs/spec').mkdir(parents=True)
+        (slot / 'docs/spec/SPEC-AMENDMENTS.md').write_text('| row |\n')
+        self.run_cmd('git', 'add', '.', cwd=slot)
+        self.run_cmd('git', 'reset', '-q', '--', '.worker-brief.md', '.worker-issue', cwd=slot)
+        self.run_cmd('git', 'commit', '-qm', 'feat(refunds): page', cwd=slot)
+        refused = self.loop('fold', '5').stdout
+        self.assertIn('docs/decisions/0003-new.md: decision records are read-only (decisions=none)', refused)
+        self.assertIn('docs/spec/SPEC-AMENDMENTS.md: an amendment ledger is refused (decisions=none)', refused)
+        self.run_cmd('git', 'rm', '-q', 'docs/decisions/0003-new.md', 'docs/spec/SPEC-AMENDMENTS.md', cwd=slot)
+        self.run_cmd('git', 'rm', '-q', 'docs/decisions/0002-refunds.md', cwd=slot)   # a deletion of an old record is allowed
+        self.run_cmd('git', 'commit', '-qm', 'docs: keep no record', cwd=slot)
+        self.assertIn('folded', self.loop('fold', '5').stdout)
 
     def test_loop_model_takes_a_tier_name(self):
         calls = self.base / 'claude.calls'
@@ -1019,23 +1012,13 @@ class PersonalIdentityTests(Fixture):
         self.alias.symlink_to(self.repo, target_is_directory=True)
         self.linked_alias = self.base / 'linked-alias'
         self.linked_alias.symlink_to(self.linked, target_is_directory=True)
-        # Credential access always stops at a local fixture; no secret is read.
-        self.op_calls = self.base / 'op.calls'
-        self.env['OP_CALLS'] = str(self.op_calls)
-        op = self.fakebin / 'op'
-        op.write_text('#!/bin/sh\necho called >> "$OP_CALLS"\nexit 1\n')
-        op.chmod(0o755)
 
     def assert_identity(self, checkout, entry, personal):
-        self.configure(base='', identity='bot', path=checkout)
-        (self.config / 'personal.conf').write_text(str(entry) + '\n')
+        """The registry line names ENTRY at tier 2; a CHECKOUT of the same repository gets that tier, each other gets tier 3."""
+        self.configure(base='', identity='bot', path=entry, personal=True)
         command = 'git commit -m "Generated with Codex"'
         self.run_cmd('bash', GUARD, input=json.dumps({'cwd': str(checkout),
                      'tool_input': {'command': command}}), expected=0 if personal else 2)
-        self.run_cmd('bash', GHX, 'test/repo', 'pr', 'list', expected=4 if personal else 3)
-        self.assertEqual(self.op_calls.exists(), personal)
-        if self.op_calls.exists():
-            self.op_calls.unlink()
 
     def test_main_linked_and_symlink_entries_share_exact_identity(self):
         paths = (self.repo.resolve(), self.alias, self.linked.resolve(), self.linked_alias)
@@ -1391,3 +1374,49 @@ class TierLoopTests(Fixture):
         bundle = next((self.ctl()).glob('tidy-*/deleted-branches.bundle'))
         self.assertIn('refs/remotes/origin/fix/done', self.run_cmd('git', 'bundle', 'list-heads', bundle).stdout)
         self.assertFalse(Path(self.env['GH_CALLS']).exists(), 'a bare origin needs no forge call')
+
+
+class TidyTimerTests(Fixture):
+    """The daily tidy timer (integrations/systemd, skills/loop/scripts/tidy-all.sh, docs/spec/SDD.md SC-13)."""
+    TIDY_ALL = PLATFORM / 'skills/loop/scripts/tidy-all.sh'
+
+    def setUp(self):
+        super().setUp()
+        self.configure(identity='local')
+        self.run_cmd('git', 'branch', 'fix/old')
+        self.old_wt = self.base / 'old-wt'
+        self.run_cmd('git', 'worktree', 'add', '-q', '-b', 'fix/wt', self.old_wt)
+
+    def tidy_all(self, expected=0, env=None):
+        # stdin and stdout are not a terminal: the timer runs with none.
+        return self.run_cmd('bash', self.TIDY_ALL, expected=expected, env=env)
+
+    def heads(self):
+        return self.run_cmd('git', 'for-each-ref', '--format=%(refname:short)', 'refs/heads').stdout.split()
+
+    def test_the_timer_run_removes_merged_refs_and_clean_worktrees_with_no_terminal(self):
+        out = self.tidy_all().stdout
+        self.assertIn('== test/repo', out)
+        self.assertNotIn('fix/old', self.heads())
+        self.assertFalse(self.old_wt.exists())
+        bundle = next(self.ctl().glob('tidy-*/deleted-branches.bundle'))
+        self.assertIn('refs/heads/fix/old', self.run_cmd('git', 'bundle', 'list-heads', bundle).stdout)
+
+    def test_the_tidy_apply_needs_both_unit_variables_or_a_terminal(self):
+        self.loop('tidy', '--apply', expected=4, env=dict(self.env, OL_PORTAL='unit'))
+        self.assertIn('fix/old', self.heads())
+
+    def test_a_failed_repository_does_not_stop_the_others(self):
+        (self.config / 'repos.conf').write_text(
+            f'# comment\n\ntest/missing\t{self.base / "absent"}\tlocal\tmain\n'
+            + (self.config / 'repos.conf').read_text())
+        out = self.tidy_all(expected=1).stdout
+        self.assertIn('== test/missing', out)
+        self.assertNotIn('fix/old', self.heads())
+
+    def test_the_timer_runs_the_tidy_of_the_release_each_day(self):
+        timer = (PLATFORM / 'integrations/systemd/dev-loop-tidy.timer').read_text()
+        self.assertRegex(timer, r'(?m)^OnCalendar=\*-\*-\* \d\d:\d\d$')
+        self.assertIn('Persistent=true', timer)
+        service = (PLATFORM / 'integrations/systemd/dev-loop-tidy.service').read_text()
+        self.assertIn('ExecStart=/opt/dev-platform/current/skills/loop/scripts/tidy-all.sh', service)

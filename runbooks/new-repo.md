@@ -9,7 +9,7 @@ given; only a GitHub-backed one needs section 2.
 new-repo <directory> --register [--personal] [--owner <login>] [--github <owner>/<name>] [--private|--public]
 ```
 
-- Copies `templates/` into the directory: `AGENTS.md`, `CONTRIBUTING.md`, `CLAUDE.md`, the pull request template, `CODEOWNERS` (with your login), Dependabot, the `checks` and `release` workflows, language-neutral `scripts/check`, `scripts/checks/hygiene.py`, `scripts/version.py`, `docs/VERSIONING.md`, `docs/decisions/0000-template.md`, the empty specification under `docs/spec/` and `docs/tasks/`.
+- Copies `templates/` into the directory: `AGENTS.md`, `CONTRIBUTING.md`, `CLAUDE.md`, the pull request template, `CODEOWNERS` (with your login), Dependabot, the `checks` and `release` workflows, language-neutral `scripts/check`, `scripts/checks/hygiene.py`, `scripts/version.py`, `docs/VERSIONING.md`, the empty specification under `docs/spec/` and `docs/tasks/`.
 - Writes a `.gitignore`, a `README.md` stub and a tiny hygiene test. Project-specific build/test commands belong in executable `scripts/check-local`, not in the skeleton.
 - Creates the repository on `main` and tags `v0.1.0` on the first commit so the version derives. At tier 3 it also creates `develop`; tiers 1, 2 and 4 use `main` and release tags only.
 - With `--github`, creates the GitHub repository with `gh`, pushes its branches and applies the rulesets (`github/rulesets/main.json`, and `develop.json` at tier 3).

@@ -15,11 +15,18 @@ A repos.conf line is `owner/repo checkout local|owner|bot [base] [key=value ...]
                     single (default): docs/spec/SDD.md and TDD.md; domains: docs/spec/<domain>/sdd.md
                     and tdd.md, found through docs/spec/index.json, with the steps of the
                     repository's AGENTS.md
-  decisions=open|frozen
-                    open (default): intake drafts decision records; frozen: nothing adds, changes
-                    or deletes a file under docs/decisions/ or adds a SPEC-AMENDMENTS.md (the git
-                    pre-commit hook and the loop's fold refuse it), and intake changes no
-                    specification (SDD-SC-20)
+  decisions=none|frozen|open
+                    none (default of a registered line): the repository keeps no decision record.
+                    Nothing adds or changes a file under docs/decisions/ or adds a
+                    SPEC-AMENDMENTS.md (the git pre-commit hook and the loop's fold refuse it).
+                    A deletion of an old record is allowed.
+                    Intake changes the specification after the owner accepts the change; git
+                    records the change and the commit message gives the reason (SDD-LP-60,
+                    SDD-LP-61).
+                    frozen: as none, with no deletion of a record, and intake changes no
+                    specification (SDD-SC-20).
+                    open: intake drafts decision records. A path that no line names is open: the
+                    platform sets no rule for the decision files of a repository that it does not know.
   incoming=state|project
                     the place of the distill candidates (SDD-SC-10). state (default):
                     ~/.local/state/dev-platform/incoming/<repo>.html; project: docs/incoming.html in
@@ -29,9 +36,8 @@ A repos.conf line is `owner/repo checkout local|owner|bot [base] [key=value ...]
                     hooks and the guard), check (the stop check), tree, loop, team. The project record
                     states the parts that are on; dev-project sync writes this field.
 
-A line without `tier=` gets tier 2 when personal.conf lists its checkout (the old rule, read for
-this one compatibility path only) and tier 3 otherwise. A path that no line names gets tier 3 if
-it is a Git checkout, else tier 0. Tier 3 is the safe default for push and forge rules.
+A line without `tier=` gets tier 3. A path that no line names gets tier 3 if it is a Git
+checkout, else tier 0. Tier 3 is the safe default for push and forge rules.
 
   tiers.py [--conf FILE] [--field NAME | --json] PATH|owner/repo
 
@@ -50,10 +56,8 @@ KEYS = {'tier': re.compile(r'[0-4]'), 'forge': re.compile(r'github|bare|none'),
         'tracker': re.compile(r'files|github|side'), 'tasks': re.compile(r'md|json'), 'slots': re.compile(r'[1-9][0-9]?'),
         'large': re.compile(r'[01]'), 'base': re.compile(r'[A-Za-z0-9._/-]+'),
         'keep': re.compile(r'[A-Za-z0-9._/-]+(,[A-Za-z0-9._/-]+)*'),
-        'spec': re.compile(r'single|domains'), 'decisions': re.compile(r'open|frozen'),
+        'spec': re.compile(r'single|domains'), 'decisions': re.compile(r'none|frozen|open'),
         'incoming': re.compile(r'state|project'),
-        # tree=<path>: the config of the project's specification tree, relative to the checkout (SDD-ST-15).
-        'tree': re.compile(r'[A-Za-z0-9._/-]+'),
         # off=<part>,<part>: the parts of the platform that are off for the project (SDD-PJ-03, SDD-PJ-04).
         'off': re.compile(r'(git|check|tree|loop|team)(,(git|check|tree|loop|team))*'),
         # side=<folder>: the side folder of a ghost project (the rig folder). With tracker=side, the tasks are files
@@ -63,10 +67,6 @@ KEYS = {'tier': re.compile(r'[0-4]'), 'forge': re.compile(r'github|bare|none'),
 
 def conf_path():
     return Path(os.environ.get('DEV_PLATFORM_REPOS', Path.home() / '.config/dev-platform/repos.conf'))
-
-
-def personal_path():
-    return Path(os.environ.get('DEV_PLATFORM_PERSONAL', Path.home() / '.config/dev-platform/personal.conf'))
 
 
 def identity(path):
@@ -115,25 +115,12 @@ def read_conf(conf=None):
     return entries
 
 
-def personal_identities():
-    path = personal_path()
-    found = set()
-    if path.is_file():
-        for line in path.read_text().splitlines():
-            line = line.strip()
-            if line and not line.startswith('#'):
-                common = identity(Path(line).expanduser())
-                if common:
-                    found.add(common)
-    return found
-
-
-def complete(entry, common):
+def complete(entry):
     """Fill the defaults of one registered entry."""
     out = dict(entry)
     out['registered'] = 1
     if 'tier' not in out:
-        out['tier'] = '2' if common and common in personal_identities() else '3'
+        out['tier'] = '3'
     if 'forge' not in out:
         if out['mode'] in ('owner', 'bot'):
             out['forge'] = 'github'
@@ -148,7 +135,7 @@ def complete(entry, common):
     out.setdefault('base', '')
     out.setdefault('keep', '')
     out.setdefault('spec', 'single')
-    out.setdefault('decisions', 'open')
+    out.setdefault('decisions', 'none')
     out.setdefault('incoming', 'state')
     return with_incoming(out)
 
@@ -172,7 +159,7 @@ def resolve(target, conf=None):
     if REPO_RE.fullmatch(target) and not Path(target).exists():
         for entry in entries:
             if entry['repo'] == target:
-                return complete(entry, identity(entry['path']))
+                return complete(entry)
         return with_incoming(dict(repo=target, path='', registered=0, tier='3', mode='', forge='none', tracker='files',
                                   tasks='md', slots='2', large='0', base='', keep='', spec='single', decisions='open'))
     path = Path(target).expanduser().resolve()
@@ -180,8 +167,8 @@ def resolve(target, conf=None):
     if common:
         for entry in entries:
             if identity(entry['path']) == common:
-                return complete(entry, common)
-    tier = '0' if not common else ('2' if common in personal_identities() else '3')
+                return complete(entry)
+    tier = '0' if not common else '3'
     return with_incoming(dict(repo='', path=str(path), registered=0, tier=tier, mode='', forge='none',
                               tracker='files', tasks='md', slots='2', large='0', base='', keep='', spec='single',
                               decisions='open'))

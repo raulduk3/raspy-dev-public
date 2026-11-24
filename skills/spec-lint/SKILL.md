@@ -11,7 +11,13 @@ description: >-
 
 Read-only. Report each finding as `file:line: problem`; fix nothing unless asked.
 
-Read the mode with `dev-loop tier <path>`: `spec=single|domains`, `decisions=open|frozen`.
+Read the mode with `dev-loop tier <path>`: `spec=single|domains`, `decisions=none|frozen|open`
+(default `none`).
+
+With `decisions=none` or `decisions=frozen`, in each layout: compare the branch with its base.
+`git diff --name-status <base>... -- docs/decisions` must print nothing, and the branch adds no
+`SPEC-AMENDMENTS.md`. With `decisions=none`, a line with the status `D` (a deletion) is not a finding. A status marker that cites a decision is not a finding when the file is
+there; a new citation of a decision is a finding.
 
 ## With `spec=domains` or `decisions=frozen`
 
@@ -23,13 +29,12 @@ single `SDD.md`; there is none.
    docs/spec/index.json`), then `bun run spec:check`
    (`python3 scripts/checks/spec-workflow.py check`), then `bun run spec:audit`. Report each line
    that a check prints as a finding. A check that is missing is a finding.
-2. With `decisions=frozen`, compare the branch with its base:
-   `git diff --name-status <base>... -- docs/decisions` must print nothing, and no
-   `SPEC-AMENDMENTS.md` exists under `docs/spec/`.
-3. Each changed task cites current IDs that the index holds. A `kind: decision` task is a finding.
+2. With `decisions=frozen`, no `SPEC-AMENDMENTS.md` exists under `docs/spec/`.
+3. Each changed task cites current IDs that the index holds. With `decisions=frozen`, a
+   `kind: decision` task is a finding.
 4. Rules 4 and 6 below apply. Rules 1, 2, 3 and 5 do not apply.
 
-## With `spec=single` and `decisions=open`
+## With `spec=single` and `decisions=none` or `decisions=open`
 
 1. Every SDD requirement is a `**XX-nn.**` line followed by its
    `<!-- id: SDD-XX-nn | tdd: ... | status: ... -->` comment, and every TDD item is a

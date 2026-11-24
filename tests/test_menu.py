@@ -3,10 +3,10 @@ from contextlib import redirect_stdout
 import importlib.machinery
 import importlib.util
 import io
-import json
 import os
 from pathlib import Path
 import pty
+import shutil
 import tty
 import tempfile
 import unittest
@@ -31,12 +31,24 @@ class Menu(unittest.TestCase):
         self.menu = load_menu()
         self.menu.DRY = True
         self.menu.TEAMS = self.root / 'engagements'
-        self.menu.PI_PROFILES = self.root / 'pi'
-        (self.root / 'pi/openai-alpha').mkdir(parents=True)
         self.project = {'id': 'owner-repo-1', 'root': str(self.root / 'Research Agent'), 'repo': 'owner/repo',
                         'group': 'owner', 'source': 'repos.conf', 'loop_enabled': True, 'available': True,
                         'common_dir': None}
         Path(self.project['root']).mkdir()
+        # The machine layer's commands come from a fake folder, empty unless a test fills it.
+        self.machine_bin = self.root / 'machine-bin'
+        self.machine_bin.mkdir()
+        self.real_machine = self.menu.machine
+        lookup = mock.patch.object(self.menu, 'machine',
+                                   lambda command: shutil.which(command, path=str(self.machine_bin)))
+        lookup.start()
+        self.addCleanup(lookup.stop)
+
+    def on_path(self, *commands):
+        """Put empty, never-run stand-ins for machine commands on the fake path."""
+        for command in commands:
+            (self.machine_bin / command).write_text('')
+            (self.machine_bin / command).chmod(0o755)
 
     def drive(self, function, *answers, **kwargs):
         """Run one menu function with scripted answers; return what it printed."""
@@ -67,8 +79,7 @@ class Menu(unittest.TestCase):
             output = self.drive(self.menu.project_menu, '1', '1', project=self.project)
         self.assertIn('anthropic-bravo  cached        7d 4% used  · most room', output)
         run = self.runs(output)[0]
-        self.assertIn('bin/ai-environment run --client claude --provider anthropic '
-                      '--preferred-account anthropic-bravo --allow-unknown-quota', run)
+        self.assertIn('bin/ai-account run --client claude --account anthropic-bravo', run)
         self.assertTrue(run.endswith(f"--cwd {self.project['root']}"))
 
     def test_account_picker_accepts_unknown_windows(self):
@@ -85,61 +96,40 @@ class Menu(unittest.TestCase):
         rows = {'sessions': [{'id': 'claude-abc', 'runtime': 'claude', 'owner': 'user', 'title': None,
                               'cwd': '/x/research-agent/.claude/worktrees/loop-4-fix', 'project': 'owner-repo-1',
                               'updated_at': '2026-09-24T00:00:00Z'},
-                             {'id': 'openclaw-x', 'runtime': 'openclaw', 'owner': 'openclaw', 'title': None,
+                             {'id': 'pi-x', 'runtime': 'pi', 'owner': 'user', 'title': None,
                               'cwd': '/x', 'project': None, 'updated_at': None}]}
         with mock.patch.object(self.menu, 'catalog', return_value=[self.project]), \
                 mock.patch.object(self.menu.workspace, 'session_rows', return_value=rows):
             output = self.drive(self.menu.sessions_menu, '1', project=None)
         self.assertIn('[claude] · Research Agent · loop-4-fix', output)
-        self.assertNotIn('openclaw', output)
+        self.assertNotIn('[pi]', output)
         self.assertTrue(self.runs(output)[0].endswith('bin/ai-session resume claude-abc --execute'))
 
-    def test_engineer_continues_the_projects_conversation_without_an_id(self):
-        state = self.root / 'state'
-        folder = state / 'conversations/conversation-0123456789abcdef0123'
-        (folder / 'native/pi').mkdir(parents=True)
-        (folder / 'native/pi/one.jsonl').write_text(self.bound('openai-alpha'))
-        (folder / 'session.json').write_text(json.dumps({
-            'version': 1, 'id': 'conversation-0123456789abcdef0123', 'agent': 'engineer', 'title': 'Research',
-            'scope': {'kind': 'project', 'project_id': 'owner-repo-1'}, 'binding': {}, 'created_at': 1}))
-        with mock.patch.dict(os.environ, {'AI_SESSION_STATE': str(state)}):
-            output = self.drive(self.menu.role_menu, '1', agent='engineer', project=self.project)
-            fresh = self.drive(self.menu.role_menu, '2', '', agent='engineer', project=self.project)
-        self.assertIn('Continue: Research', output)
-        self.assertTrue(self.runs(output)[0].endswith(
-            'bin/ai-role launch conversation-0123456789abcdef0123 --account openai-alpha --resume latest'))
-        created = self.runs(fresh)[0]
-        self.assertIn('conversation create --agent engineer --title [', created)
-        self.assertIn('/Research-Agent] research(agent): Research Agent · engineer · pi · unknown · interactive · ', created)
-        self.assertIn(f"--project owner-repo-1 --workspace {self.project['root']}", created)
+    def test_a_role_starts_through_the_launcher_of_the_server(self):
+        # ai-role starts nothing without the Pi login folder that the launcher hands in, so the
+        # menu gives the role and, for Engineer, the project to `agent`, which asks the rest.
+        self.assertEqual(self.runs(self.drive(self.menu.start_role, agent='assistant')), ['agent assistant'])
+        self.assertEqual(self.runs(self.drive(self.menu.start_role, agent='engineer', project=self.project)),
+                         [f"agent engineer {self.project['root']}"])
 
-    @staticmethod
-    def bound(account):
-        return json.dumps({'type': 'custom', 'customType': 'dev-platform-binding',
-                           'data': {'conversation': 'c', 'agent': 'assistant', 'accountRef': account + ':pi'}}) + '\n'
-
-    def test_switching_pi_accounts_resumes_only_that_accounts_session(self):
-        (self.root / 'pi/openai-bravo').mkdir()
-        state = self.root / 'state'
-        folder = state / 'conversations/conversation-0123456789abcdef0123'
-        native = folder / 'native/pi'
-        native.mkdir(parents=True)
-        (folder / 'session.json').write_text(json.dumps({
-            'version': 1, 'id': 'conversation-0123456789abcdef0123', 'agent': 'assistant', 'title': 'Today',
-            'scope': {'kind': 'personal'}, 'binding': {}, 'created_at': 1}))
-        apple = native / 'apple.jsonl'
-        apple.write_text(self.bound('openai-alpha'))
-        os.utime(apple, (1, 1))
-        launch = 'bin/ai-role launch conversation-0123456789abcdef0123'
-        with mock.patch.dict(os.environ, {'AI_SESSION_STATE': str(state)}):
-            switched = self.drive(self.menu.role_menu, '1', '2', agent='assistant')
-            (native / 'gmail.jsonl').write_text(self.bound('openai-bravo'))
-            back = self.drive(self.menu.role_menu, '1', '1', agent='assistant')
-            again = self.drive(self.menu.role_menu, '1', '2', agent='assistant')
-        self.assertTrue(self.runs(switched)[0].endswith(f'{launch} --account openai-bravo'))
-        self.assertIn('earlier sessions were on openai-alpha', switched)
-        self.assertTrue(self.runs(back)[0].endswith(f'{launch} --account openai-alpha --resume {apple.resolve()}'))
-        self.assertTrue(self.runs(again)[0].endswith(f'{launch} --account openai-bravo --resume latest'))
+    def test_the_role_entries_leave_the_menu_on_a_machine_with_no_launcher(self):
+        with mock.patch.object(self.menu, 'upgrade_if_released'), \
+                mock.patch.object(self.menu, 'project_for', return_value=None):
+            with mock.patch.object(self.menu, 'role_launcher', return_value=None):
+                absent = self.drive(self.menu.home)
+            with mock.patch.object(self.menu, 'role_launcher', return_value='/usr/local/bin/agent'):
+                present = self.drive(self.menu.home)
+                ops = self.drive(self.menu.home, '5')
+        for entry in ('Assistant, personal', 'Ops, this machine', 'Engineer, on a project'):
+            self.assertNotIn(entry, absent)
+            self.assertIn(entry, present)
+        self.assertEqual(self.runs(ops)[0], 'agent ops')
+        with mock.patch.object(self.menu, 'usage_rows', return_value=[]):
+            with mock.patch.object(self.menu, 'role_launcher', return_value=None):
+                self.assertNotIn('Engineer on this project', self.drive(self.menu.project_menu, project=self.project))
+            with mock.patch.object(self.menu, 'role_launcher', return_value='/usr/local/bin/agent'):
+                started = self.drive(self.menu.project_menu, '3', project=self.project)
+        self.assertEqual(self.runs(started)[0], f"agent engineer {self.project['root']}")
 
     def test_a_project_team_starts_outside_the_repository_under_its_own_name(self):
         with mock.patch.object(self.menu, 'rigs', return_value=[]), \
@@ -424,7 +414,7 @@ class Menu(unittest.TestCase):
             output = self.drive(self.menu.new_project, 'Tetris', 'a falling-blocks game', '1')
         runs = self.runs(output)
         self.assertTrue(runs[0].endswith(f'bin/new-repo {folder} --register --personal'))
-        self.assertIn(f'--cwd {folder} Use the intake skill to spec out this project. '
+        self.assertIn(f'--cwd {folder} -- Use the intake skill to spec out this project. '
                       'The goal: a falling-blocks game.', runs[1])
         opened.assert_called_once_with(project)
         self.assertEqual(self.runs(self.drive(self.menu.new_project, '')), [])
@@ -451,7 +441,7 @@ class Menu(unittest.TestCase):
     def test_engineer_is_on_the_home_screen_and_asks_for_a_project_first(self):
         other = dict(self.project, id='elsewhere', source='discovered', root='/x/other')
         with mock.patch.object(self.menu, 'catalog', return_value=[self.project, other]), \
-                mock.patch.object(self.menu, 'role_menu') as role:
+                mock.patch.object(self.menu, 'start_role') as role:
             output = self.drive(self.menu.engineer_menu, '1')
         self.assertNotIn('other', output)
         role.assert_called_once_with('engineer', self.project)
@@ -500,6 +490,110 @@ class Menu(unittest.TestCase):
         os.write(master, b'\x1b')
         with mock.patch.object(self.menu.sys, 'stdin', mock.Mock(fileno=lambda: slave)):
             self.assertEqual(self.menu.read_key(), 'esc')
+
+    def home_labels(self, *answers, launcher=None):
+        with mock.patch.object(self.menu, 'upgrade_if_released'), \
+                mock.patch.object(self.menu, 'project_for', return_value=None), \
+                mock.patch.object(self.menu, 'role_launcher', return_value=launcher):
+            output = self.drive(self.menu.home, *answers)
+        # With no answers the home screen is shown once, so each numbered line is one of its entries.
+        return [line.split(None, 1)[1] for line in output.splitlines() if line[:4].strip().isdigit()], output
+
+    MACHINE = ('note', 'tasks', 'task', 'say', 'recall', 'dash', 'ol-hold')
+
+    def test_a_machine_command_is_found_on_the_command_path(self):
+        with mock.patch.dict(os.environ, {'PATH': str(self.machine_bin)}):
+            self.assertIsNone(self.real_machine('note'))
+            self.on_path('note')
+            self.assertEqual(self.real_machine('note'), str(self.machine_bin / 'note'))
+
+    def test_without_the_machine_layer_the_home_screen_is_as_before(self):
+        labels, _ = self.home_labels()
+        self.assertEqual(labels, ['Projects', 'Start a new project', 'Recent sessions', 'Teams', 'Accounts and setup'])
+
+    def test_the_home_screen_shows_the_daily_things_first_and_the_machine_last(self):
+        self.on_path(*self.MACHINE)
+        labels, _ = self.home_labels(launcher='/usr/local/bin/agent')
+        self.assertEqual(labels, ['Write', 'Tasks', 'Inbox', 'Chat', 'Search everything',
+                                  'Projects', 'Start a new project', 'Recent sessions',
+                                  'Assistant, personal', 'Ops, this machine', 'Engineer, on a project', 'Role conversations in Pi',
+                                  'Teams', 'Dashboard', 'This machine', 'Accounts and setup'])
+
+    def test_each_machine_entry_needs_its_own_command(self):
+        for command, entry in (('note', 'Write'), ('tasks', 'Tasks'), ('task', 'Inbox'), ('say', 'Chat'),
+                               ('recall', 'Search everything'), ('dash', 'Dashboard'), ('ol-hold', 'This machine')):
+            for leftover in self.machine_bin.iterdir():
+                leftover.unlink()
+            self.on_path(command)
+            labels, _ = self.home_labels()
+            self.assertIn(entry, labels)
+            self.assertEqual(len(labels), 6, (command, labels))
+
+    def test_home_hands_write_chat_search_and_the_dashboard_to_their_commands(self):
+        self.on_path(*self.MACHINE)
+        self.assertEqual(self.runs(self.home_labels('1', '1')[1]), ['note'])
+        self.assertEqual(self.runs(self.home_labels('1', '2')[1]), ['note yesterday'])
+        self.assertEqual(self.runs(self.home_labels('1', '3', 'paid the rent')[1]), ['note paid the rent'])
+        self.assertEqual(self.runs(self.home_labels('4', '1', 'hello @ops')[1]), ['say hello @ops'])
+        self.assertEqual(self.runs(self.home_labels('5', 'bank')[1]), ['sh -c "$@" 2>&1 | less -RFX sh recall bank'])
+        self.assertEqual(self.runs(self.home_labels('10')[1]), ['dash'])
+
+    def test_a_journal_task_is_finished_or_added_through_task_and_tasks(self):
+        tasks = [{'n': 1, 'text': 'Call the bank', 'file': '1.txt', 'due': '2026-01-01', 'tags': ['home']}]
+        with mock.patch.object(self.menu, 'journal_tasks', return_value=tasks), \
+                mock.patch.object(self.menu, 'tasks_summary', return_value='1 open, 1 overdue'):
+            done = self.drive(self.menu.journal_tasks_menu, '1', '1')
+            added = self.runs(self.drive(self.menu.journal_tasks_menu, '2', 'Pay rent', 'friday', '3', 'home bills'))
+        self.assertIn('1 open, 1 overdue', done)
+        self.assertIn('Call the bank  · overdue 2026-01-01, #home', done)
+        self.assertEqual(self.runs(done), ['tasks done 1'])
+        self.assertEqual(added, ['task Pay rent --due friday --priority high --tag home --tag bills'])
+
+    def test_a_proposal_in_the_inbox_is_taken_as_a_task_and_filed_away(self):
+        self.menu.INBOX = self.root / 'inbox'
+        self.menu.INBOX.mkdir()
+        item = self.menu.INBOX / '2026-11-23-0900-assistant-task-ab12.txt'
+        item.write_text('Call the bank\ndue: friday\ntags: #home\n')
+        output = self.drive(self.menu.inbox_menu, '1', '2')
+        self.assertIn('Inbox · 1 waiting', output)
+        self.assertEqual(self.runs(output), ['task Call the bank --due friday --tag home'])
+        self.assertFalse(item.exists())
+        self.assertTrue((self.root / 'archive/inbox' / item.name).is_file())
+
+    def test_this_machine_shows_only_the_parts_whose_commands_are_present(self):
+        self.menu.HOLD = self.root / 'hold'
+        self.on_path('ol-hold', 'brief')
+        output = self.drive(self.menu.machine_menu, '2', '1', '1')
+        self.assertIn('Rounds on · local model on', output)
+        for absent in ('Terminals', 'Screen on', 'Services', 'Send a test alert'):
+            self.assertNotIn(absent, output)
+        self.assertEqual(self.runs(output), ['brief', 'sudo -n /usr/local/bin/ol-hold stream off'])
+
+    def test_a_terminal_is_opened_through_tmux(self):
+        rows = [{'name': 'work', 'viewers': 0, 'created': 0, 'command': 'zsh', 'path': '~', 'here': False}]
+        with mock.patch.object(self.menu, 'terminals', return_value=rows), mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop('TMUX', None)
+            output = self.drive(self.menu.terminals_menu, '1', '1')
+        self.assertIn('work · no viewer · zsh in ~', output)
+        self.assertEqual(self.runs(output), ['tmux attach -t work:'])
+
+    def test_a_worker_is_dropped_only_after_a_yes(self):
+        loop = str(self.menu.LOOP)
+        with self.open_goal():
+            self.assertEqual(self.loop_runs('1', '6', 'n'), [])
+            self.assertEqual(self.loop_runs('1', '6', 'y'), [f'{loop} drop owner/repo 1'])
+
+    def test_the_roles_earlier_pi_conversations_resume_through_ai_session(self):
+        rows = {'sessions': [{'id': 'pi-x', 'runtime': 'pi', 'owner': 'assistant', 'title': 'groceries', 'cwd': '/home/assistant',
+                              'project': None, 'updated_at': None},
+                             {'id': 'claude-abc', 'runtime': 'claude', 'owner': 'user', 'title': None, 'cwd': '/x',
+                              'project': None, 'updated_at': None}]}
+        with mock.patch.object(self.menu, 'catalog', return_value=[]), \
+                mock.patch.object(self.menu.workspace, 'session_rows', return_value=rows):
+            output = self.drive(self.menu.sessions_menu, '1', project=None, pi=True)
+        self.assertIn('[assistant] · assistant · groceries', output)
+        self.assertNotIn('[claude]', output)
+        self.assertTrue(self.runs(output)[0].endswith('bin/ai-session resume pi-x --execute'))
 
     def test_keyboard_picking_moves_filters_and_backs_out(self):
         items = [('alpha', 'a'), ('beta', 'b'), ('alphabet', 'c')]

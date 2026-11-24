@@ -1,6 +1,6 @@
 # Source control
 
-Each repository has one tier in `~/.config/dev-platform/repos.conf`. The tier sets the refs, the checkouts, the landing and the forge use for every agent and every interface. The decision is `docs/decisions/0001-lean-source-control.md`.
+Each repository has one tier in `~/.config/dev-platform/repos.conf`. The tier sets the refs, the checkouts, the landing and the forge use for every agent and every interface.
 
 Find the tier: `dev-loop tier <path>`. An unregistered repository follows tier 3.
 
@@ -35,12 +35,15 @@ The develop skill lists rules R1 to R11. In short: find the tier first, make the
 
 A desktop session uses a `wip/*` branch. Never push it. Rename it to `type/slug` before a push.
 
-## Spec-direct mode
+## Decision records and spec-direct mode
 
 Two fields on a `repos.conf` line set how agents change the specification:
 
 - `spec=domains`: the specification is `docs/spec/<domain>/sdd.md` and `tdd.md`, found through `docs/spec/index.json`. The default `spec=single` is `docs/spec/SDD.md` and `TDD.md`.
-- `decisions=frozen`: nobody writes a decision record, and intake changes no specification. Distill still writes candidates. The owner takes a candidate in by hand, or an agent uses the `dev-spec` write commands where the project has a specification tree. The git pre-commit hook and `dev-loop fold` refuse a change under `docs/decisions/` and a new `SPEC-AMENDMENTS.md`. The default is `decisions=open`.
+- `decisions=none` (the default of a registered line): the repository keeps no decision record and no amendment ledger. The specification is the one record of a requirement. Intake asks the owner each open question in the conversation and changes the specification after the owner accepts the change. Git records the change, and the commit message gives the reason. The git pre-commit hook and `dev-loop fold` refuse a new or changed file under `docs/decisions/` and a new `SPEC-AMENDMENTS.md`. Files that are there are history; a commit can delete them.
+- `decisions=frozen`: as `none`, but no commit deletes a decision file, and intake changes no specification. Distill still writes candidates. The owner takes a candidate in by hand, or an agent uses the `dev-spec` write commands where the project has a specification tree.
+- `decisions=open`: the repository keeps decision records, and intake drafts them. Set it only for a repository whose own rules need the records.
+- A path that no line names has `decisions=open`: the platform sets no rule for the decision files of a repository that it does not know.
 
 The `intake`, `distill`, `spec-lint` and `loop` skills read both fields. The repository's `AGENTS.md` gives its own steps and checks; the platform does not copy them.
 
@@ -67,7 +70,7 @@ Intake reads a candidate by its ID from that file and removes it when it promote
 
 ## Three layers of enforcement
 
-1. **Global git hooks.** They refuse a push of a protected ref, a force push, a push of a `wip/*` ref, and a commit with an AI attribution trailer. In a repository with `decisions=frozen` they also refuse a commit that touches `docs/decisions/` or adds a `SPEC-AMENDMENTS.md`. They work for every local interface.
+1. **Global git hooks.** They refuse a push of a protected ref, a force push, a push of a `wip/*` ref, and a commit with an AI attribution trailer. In a repository with `decisions=none` or `decisions=frozen` they also refuse a commit that touches `docs/decisions/` or adds a `SPEC-AMENDMENTS.md`. They work for every local interface.
 2. **Server rules.** Branch rules on the forge or the bare repository refuse the same pushes for cloud agents and for Zed.
 3. **Harness guards.** The Claude, Codex and Pi guards refuse a merge into a protected ref, a `gh api` merge, and the deletion of the branch or worktree of another session. In a worktree where another live Claude Code or Codex process works (a shared bench), they also refuse a command that moves HEAD or the index: `checkout`, `switch`, `merge`, `reset`, `pull`, `cherry-pick`, `revert`, `stash pop` and `stash apply`. Commit on the bench where it is, under the lock. Read other refs with `git show` and `git diff`.
 

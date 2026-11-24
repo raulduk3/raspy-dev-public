@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Launch or plan an account-bound Pi role conversation; see docs/pi-transition.md."""
+"""Launch or plan an account-bound Pi role conversation; see lib/ai_ecosystem/role_launch.py and docs/spec/SDD.md, area RO."""
 import sys
 from pathlib import Path
 

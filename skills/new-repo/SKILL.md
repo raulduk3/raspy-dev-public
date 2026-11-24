@@ -10,8 +10,7 @@ description: >-
 
 `new-repo` (on `PATH`; `bin/new-repo` in the platform) creates a repository from the platform's
 templates. The files are language-neutral: `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, the empty
-specification (`docs/spec/SDD.md`, `TDD.md`, `SPEC-AMENDMENTS.md`), the decision template,
-`docs/tasks/`, and the hygiene and version scripts (`scripts/check`, `scripts/version.py`). It
+specification (`docs/spec/SDD.md`, `TDD.md`), `docs/tasks/`, and the hygiene and version scripts (`scripts/check`, `scripts/version.py`). It
 writes no language skeleton. The project adds its own build and checks in `scripts/check-local`.
 It commits on `main`, tags `v0.1.0`, and writes the source control tier in `AGENTS.md`.
 
@@ -38,9 +37,10 @@ It commits on `main`, tags `v0.1.0`, and writes the source control tier in `AGEN
 3. **Verify** from the new checkout: `git branch --show-current` is the base,
    `dev-loop tier .` prints the tier, `dev-loop status <owner>/<name>` resolves the repository,
    and `scripts/check` passes.
-4. **Hand over** to `intake` with the owner's goal as the source. It writes the first decisions,
-   the first requirements in the empty specification and the first tasks; `loop` then builds
-   them.
+4. **Hand over** to `intake` with the owner's goal as the source. It asks the owner each open
+   question, writes the first requirements in the empty specification after the owner accepts
+   them, and writes the first tasks; `loop` then builds them. A new repository keeps no decision
+   record (`decisions=none`, the default of a registered line).
 
 A project that needs a language skeleton adds it in its first change. `runbooks/new-repo.md` has
 the GitHub settings that are done by hand.

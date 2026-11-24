@@ -1,8 +1,7 @@
 # Filesystem journal
 
 The owner's journal is plain text in `~/journal` on dev-server, owned by him. It has no
-database and no application: one small file per thing. The machine's decisions
-(dev-server `decisions.txt`, 2026-10-03 and 2026-10-05) set its shape and who may touch it.
+database and no application: one small file per thing.
 
 ```
 ~/journal/log/YYYY/MM/DD.txt      the day's note
@@ -12,8 +11,8 @@ database and no application: one small file per thing. The machine's decisions
 
 ## One command set
 
-The journal's commands are dev-server's `note`, `task`, `tasks` and `brief`. There is no
-second set: the platform's old `bin/journal` and its daily-note writer are gone.
+The journal's commands are dev-server's `note`, `task`, `tasks` and `brief`
+(`host/bin/`). There is no second set.
 
 ```sh
 note                        # open today's note
@@ -57,7 +56,7 @@ journal tool (`integrations/pi/journal-tool.mjs`):
 
 The Obsidian vault the journal came from is archived, unchanged, at
 `~/archive/vault` (PARA folders, Tasks-plugin lines with emoji dates). Its
-tasks were deliberately not imported (decided 2026-10-03). They stay searchable:
+tasks are not in the journal. They stay searchable:
 
 ```sh
 tasks --archive                      # its open task lines, with file and line

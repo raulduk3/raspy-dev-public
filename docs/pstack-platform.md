@@ -13,7 +13,7 @@ disagree about a tool name, this page wins. Where they disagree about method, he
 | --- | --- |
 | `vendor/pstack/` | Her tree, unmodified, at the commit in `vendor/pstack/UPSTREAM`. Never edit it. |
 | `skills/<name>/` | The installed copies, built by `bin/pstack-port`. The list is `integrations/pstack/ported.txt`. |
-| `integrations/pstack/overlays/<name>/` | Whole-file adaptations that replace the vendored file. Today `setup-pstack` and the `/dev-plat` playbooks (see "Playbooks that the platform hides"). |
+| `integrations/pstack/overlays/<name>/` | Whole-file adaptations that replace the vendored file. Today `setup-pstack`, and for `/dev-plat` its playbooks (see "Playbooks that the platform hides"), `scripts/worktree-audit.sh` and `scripts/package.json`. |
 | `/etc/dev-platform/pstack-models.md` | The per-role model file (her `pstack-models.mdc`), one for the owner and every agent under every harness. Its source is `~/dev/dev-server/etc/pstack-models.md`, which `/setup-pstack` edits and bootstrap installs. |
 | `~/.config/dev-platform/pstack-models.md` | A user's personal override of single lines. `bin/pstack-model show` names the file each line comes from. |
 
@@ -28,6 +28,11 @@ run `bin/pstack-port`, read `git diff skills/`, and fix any overlay the upstream
 
 Not ported: `make-bot-ui` (it drives Cursor Automations webhooks) and the `automations/benny`
 skills (Cursor Automations triage and reproduce bots). They stay in `vendor/` for reference.
+
+Left out of a ported skill: `scripts/watch-pr` of `/dev-plat`, her pull request watcher. Only
+her Babysit and Shipping playbooks call it, and they are stubs here. `LEFT_OUT` in
+`bin/pstack-port` is the list; the port does not copy a path in it, and the code stays in `vendor/`.
+The overlay `scripts/package.json` is her file without the two scripts that name the watcher.
 
 ## Reaching a skill her text names
 
@@ -44,7 +49,7 @@ Pi roles have skill discovery off; they read the same files by path.
 | A `Task` subagent, `Task` tool | Claude Code's `Agent` tool (`run_in_background: true`, `subagent_type: general-purpose`). Codex: its own subagents, or `codex exec` started in the background. |
 | `subagent_type: "Comment Sicko"` (the `no-comments` skill) | `general-purpose`, with the brief's first line: read `vendor/pstack/agents/comment-sicko.md` (installed: `/opt/dev-platform/current/vendor/pstack/agents/comment-sicko.md`) in full and act as that agent. |
 | `subagent_type: "dev-plat-agent"` | `general-purpose`, with the brief's first line: read `skills/dev-plat/SKILL.md` in full, including its Principles index. |
-| A model slug in `model:` | A tier slug (`judgment-max`, `judgment.2-max`, `implementation-xhigh`): the port rewrote her model names into tiers. Resolve the role's line with `bin/pstack-model resolve '<role>'` (`--all` for a panel, one subagent per line printed; `--runtime claude` inside Claude Code's `Agent`). It prints `<model>\t<effort>`: pass the model as `Agent`'s `model`; `--runtime pi` gives Pi's `openrouter/<maker>/<model>` (OpenRouter families come first in every tier) and `--runtime openrouter` only those, for the API rig; the effort applies only where a process is started (`claude --effort`). A `codex:<model>` result runs as `codex exec --model <model>`, and `inherit` means omit `model`. |
+| A model slug in `model:` | A tier slug (`judgment-max`, `judgment.2-max`, `implementation-xhigh`): the port rewrote her model names into tiers. Resolve the role's line with `bin/pstack-model resolve '<role>'` (`--all` for a panel, one subagent per line printed; `--runtime claude` inside Claude Code's `Agent`). It prints `<model>\t<effort>`: pass the model as `Agent`'s `model`; `--runtime pi` gives Pi's `openrouter/<maker>/<model>` (OpenRouter families come first in every tier) and `--runtime openrouter` only those, for a Pi seat of a team; the effort applies only where a process is started (`claude --effort`). A `codex:<model>` result runs as `codex exec --model <model>`, and `inherit` means omit `model`. |
 | `environment: "cloud"`, cloud VM, `cloud_base_branch` | There is no cloud. A worker runs on this machine in its own git worktree: `Agent` with `isolation: "worktree"`, a loop worker, or an OpenRig worker seat (`dev-workspace add-worker`). A base branch means the worktree is cut from that local branch. |
 | `~/.cursor/rules/pstack-models.mdc` | `/etc/dev-platform/pstack-models.md` (source: `~/dev/dev-server/etc/pstack-models.md`, edited by `/setup-pstack`), overridden line by line by `~/.config/dev-platform/pstack-models.md`. Missing file or line: the default `bin/pstack-model defaults` prints, which matches her skill defaults tier for tier. |
 | `.cursor/skills/` (project), `~/.cursor/skills/` (user) | `.claude/skills/` and `.agents/skills/` in the repository; `~/.claude/skills/` and `~/.agents/skills/` for the user. A skill for every repository belongs in this platform's `skills/`. |
@@ -61,11 +66,11 @@ Pi roles have skill discovery off; they read the same files by path.
 | The Cursor dashboard (cloud agent status) | `rig ps` and `rig_rig_nodes` for seats; `dev-loop status` for loop workers. |
 | `origin pr` (Origin forge) | Not installed. `gh` is the forge. |
 | `gt` (Graphite) | Not installed. Her Opening a PR playbook already says never require it. `orch frontier set` needs it; until a gh-based frontier exists, compute the frontier from `gh pr list` and `git`. |
-| `bun scripts/...` (orch, watch-pr) | Run with `~/.bun/bin/bun` from `skills/dev-plat/scripts` after `bun install`. |
+| `bun scripts/...` (orch) | Run with `~/.bun/bin/bun` from `skills/dev-plat/scripts` after `bun install`. `watch-pr` is not ported (see "Where it lives"). |
 
 ## Playbooks that the platform hides
 
-Some `/dev-plat` playbooks conflict with the source control tiers (decision 0001). They squash-merge, rebase, open ready pull requests, or need `gt` or `origin`. The overlay folder `integrations/pstack/overlays/poteto-mode/playbooks/` replaces them. The port copies the overlay over the vendored file, so `bin/pstack-port --check` stays green.
+Some `/dev-plat` playbooks conflict with the source control tiers (`docs/source-control.md`). They squash-merge, rebase, open ready pull requests, or need `gt` or `origin`. The overlay folder `integrations/pstack/overlays/poteto-mode/playbooks/` replaces them. The port copies the overlay over the vendored file, so `bin/pstack-port --check` stays green.
 
 | Playbook | Overlay |
 | --- | --- |
@@ -81,7 +86,7 @@ To hide another playbook, add a file with the same name to the overlay folder an
 `repos.conf` marks each repository `local`, `owner` or `bot`. A `local` repository has no pull
 requests. Every step that opens, edits or watches a pull request becomes: the branch is ready,
 its briefing-style body (her Opening a PR sections) is in the worker's `.worker-pr.md`, and the
-owner merges it into the base with `git merge --no-ff` in a terminal. Tasks are `docs/tasks/`
+owner lands the goal with `dev-loop land`. Tasks are `docs/tasks/`
 files (see the `intake` and `loop` skills); a task number is the issue number her text cites.
 
 ## What the guard hook leaves to the owner
@@ -98,7 +103,7 @@ run them; here the agent stops at the step and hands it to the owner, with the e
 | Pushing | Push to `develop` or `main`, force push, a bare `git push` | Push only the named `type/slug` branch. |
 | Deploys, restarts | docker, systemctl, ssh mutations | The owner, every time. |
 
-In a professional repository (not in `personal.conf`) nothing that reaches GitHub names a tool or
+In a professional repository (tier 3 or 4) nothing that reaches GitHub names a tool or
 model, and the platform's publication rules decide whether an agent pushes at all.
 
 ## Seats and the development loop
@@ -109,17 +114,16 @@ seat runs `/dev-plat` and follows Orchestrate; each `workers.*` seat runs `/dev-
 the playbook its brief names (Feature, Bug fix, Refactoring); the `review.overseer` seat runs
 `/interrogate` on a finished unit. Every brief carries her fields: GOAL, SCOPE, CONTEXT,
 ACCEPTANCE, VERIFY, TIMEBOX, FORBIDDEN, REPORT, STANDING. The seat definitions under
-`integrations/openrig/agents/` do not yet install these skills; that is the next change.
+`integrations/openrig/agents/` install no skill; a seat sees the skills of its home.
 
 ### Branches, not days
 
 A branch is the only unit of work. A goal gets one ordinary `type/slug` branch cut from the base,
-the rig branch (`dev-loop start <repo> feat/snake-game`). Each task gets a child branch cut from
-it. A child whose check passes merges up into the rig branch; the control seat does that with
-`dev-loop fold`, which also releases the worker's seat. The rig branch reaches the base once, by
-the owner: a local merge, or one pull request. That is her stack with one level, landed by merge
-instead of rebase, which the guard hook refuses. The loop is a way to repeat this until the goal is
-done, not a daily clock.
+the goal branch (`dev-loop start <repo> feat/snake-game`). Each task gets a detached slot at the
+tip of the goal branch; a slot has no branch. `dev-loop fold` adds one squash commit for a
+finished task to the goal branch and releases the worker's seat. The goal lands once, as the tier
+says (`dev-loop land`). That is her stack with one level, landed without a rebase, which the guard
+hook refuses. The loop is a way to repeat this until the goal is done, not a daily clock.
 
 ## Which skill takes which work
 

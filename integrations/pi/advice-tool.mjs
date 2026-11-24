@@ -1,9 +1,9 @@
 /** ask_advice: any seat asks the judgment tier for a second opinion.
  *
- *  The API rig runs mostly on DeepSeek; this is the "ask Fable for advice" call at every tier.
+ *  A Pi seat runs mostly on DeepSeek; this is the "ask Fable for advice" call at every tier.
  *  The model is the model file's `advice` line for the openrouter runtime (judgment-max: Fable
  *  first), resolved at each call so a /setup-pstack change applies at once. It goes through the
- *  same OpenRouter key the seat already runs on, so the rig's daily and monthly caps count it.
+ *  same OpenRouter key the seat already runs on, so its cost is on that key.
  *  Never a subscription. The answer is advice to weigh, not an instruction to follow. */
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -64,7 +64,7 @@ export default function adviceTool(pi) {
       const response = await fetch(ENDPOINT, {
         method: "POST",
         signal: signal ?? AbortSignal.timeout(180000),
-        headers: { authorization: `Bearer ${key}`, "content-type": "application/json", "x-title": "dev-platform api-rig" },
+        headers: { authorization: `Bearer ${key}`, "content-type": "application/json", "x-title": "dev-platform" },
         body: JSON.stringify(request(params.question, params.context, choice)),
       });
       const data = await response.json().catch(() => ({}));

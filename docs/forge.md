@@ -1,8 +1,6 @@
 # Goal forge
 
-One goal is one forge. Many workers commit, each in its own slot. One orchestrator checks a batch of results with one full check and folds it. The command is `dev-forge` (`lib/ai_ecosystem/forge.py`). The requirements are SDD-SC-08 and SDD-SC-22 to SDD-SC-27.
-
-The design comes from the Acme build rig of 2026-11-12 to 2026-11-17. That rig folded 225 code tasks in 24 hours with 7 to 12 workers.
+One goal is one forge. Many workers commit, each in its own slot. One orchestrator checks a batch of results with one full check and folds it. The command is `dev-forge` (`lib/ai_ecosystem/forge.py`). The requirements are SDD-SC-08, SDD-SC-22 to SDD-SC-27 and SDD-LP-25 to SDD-LP-44.
 
 ## Why it is fast
 
@@ -33,13 +31,11 @@ A rig folder (`~/dev/rigs/<rig>`) holds `forge.json`, `culture.md`, `rig.yaml`, 
     "cheap": "bun run typecheck",
     "proof": "bun test {tests}",
     "affected": "scripts/affected-tests",
-    "full": "bun run check",
-    "build": null
+    "full": "bun run check"
   },
   "places": {"light": 3, "heavy": 1, "mem_min_mb": 3000, "load_max": null},
-  "batch": {"max_tasks": 6, "max_wait_s": 600},
+  "batch": {"max_tasks": 6},
   "wide": ["packages/contracts/src"],
-  "review_kinds": ["money", "legal"],
   "workers": {"limit": null, "runtime": "claude", "rig": null, "seat_runtime": "claude", "model": null, "rules": ["..."]}
 }
 ```
@@ -50,6 +46,7 @@ A rig folder (`~/dev/rigs/<rig>`) holds `forge.json`, `culture.md`, `rig.yaml`, 
 - `commands.affected` can be an existing tool: `vitest --changed`, `jest --findRelatedTests`, pytest-testmon, `nx affected`.
 - `wide` lists the registry files that many tasks touch. They do not hold a task.
 - `places` are for the whole machine (`~/.local/state/dev-platform/forge/places`), so two rigs stand in one line.
+- The profile has no build command, no batch wait time and no review kinds. A profile that holds `commands.build`, `batch.max_wait_s` or `review_kinds` is refused with the name of the field: delete that field.
 
 ## One goal
 
@@ -70,7 +67,7 @@ The rig is files, git and shell commands. A runtime gives only the start of a on
 | `claude` | One headless Claude Code run for each task | Claude Code CLI |
 | `seat` | One seat in the OpenRig rig `workers.rig`, of the runtime `workers.seat_runtime` (claude, codex or pi) | OpenRig |
 | `hand` | The loop makes the slot and the brief and starts nothing | An in-session agent of a Claude Code orchestrator, or `codex exec "$(cat .worker-brief.md)"` in the slot |
-| `pi` | One headless Pi run on the OpenRouter key | The API rig |
+| `pi` | One headless Pi run on the OpenRouter key | A caller that has the key in its environment |
 
 A worker context lives for one task. The seat and the slot live for the goal. The orchestrator is the one long context: it writes its state to files and hands over when its context is over half (OpenRig: the seat handover; Claude Code: a clear and one message).
 
@@ -81,11 +78,9 @@ A worker context lives for one task. The seat and the slot live for the goal. Th
 | No full check | It stacks the batch and folds nothing. No check, no automatic fold. |
 | No command for affected tests | A worker runs the tests that its task names. Use a smaller batch. |
 | A task with no scope | The task runs alone. |
-| A GitHub tracker | Not in this version: `ready`, `brief` and `batch` read task files only. |
+| A GitHub tracker | Not supported: `ready`, `brief` and `batch` read task files only. |
 
-## Limits of this version
+## Limits
 
 - A slot stays with its task until the batch folds. Give the repository more slots than the worker limit (`slots=` in `repos.conf`).
 - One open goal for each repository. One goal across two repositories is two forges.
-- A Codex session as the orchestrator is not verified.
-- The first forge on a real repository is not run yet.

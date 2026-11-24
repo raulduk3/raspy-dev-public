@@ -150,15 +150,36 @@ def natural(name):
 
 # ---------- the config (SDD-ST-15) ----------
 
-def load_config(path):
-    """Read and validate one project config. Raises ConfigError with one line for each problem."""
+def arguments_config(folder, layout, sdd=None, tdd=None, spec_root=None):
+    """The config of one repository from arguments only, for a folder that no project record holds (SDD-PJ-09)."""
+    folder = Path(folder).expanduser().resolve()
+    repo = {'name': folder.name, 'path': '.', 'layout': layout}
+    for key, value in (('sdd', sdd), ('tdd', tdd), ('spec_root', spec_root)):
+        if value:
+            repo[key] = str(Path(value).expanduser().resolve()) if key == 'spec_root' else value
+    return load_config(folder / '(arguments)', {'schema': SCHEMA, 'name': folder.name, 'top': None, 'repositories': [repo]})
+
+
+def settings_arguments(parser):
+    """The settings of a folder that no project record holds, as arguments of a read command (SDD-PJ-09)."""
+    parser.add_argument('--layout', choices=LAYOUTS, help='the settings as arguments: the layout of the specification; '
+                        'no record and no config file is read')
+    parser.add_argument('--sdd', help='with --layout: the SDD file or folder, relative to the checkout or to --spec-root')
+    parser.add_argument('--tdd', help='with --layout: the TDD file or folder')
+    parser.add_argument('--spec-root', help='with --layout: a side folder that holds the specification')
+
+
+def load_config(path, data=None):
+    """Read and validate one project config. Raises ConfigError with one line for each problem.
+    With data, PATH is only the label of the problems and its folder is the base of the relative paths."""
     path = Path(path).expanduser().resolve()
-    if not path.is_file():
-        raise ConfigError([f'{path}: no such config file'])
-    try:
-        data = json.loads(read(path))
-    except ValueError as error:
-        raise ConfigError([f'{path}: not valid JSON: {error}'])
+    if data is None:
+        if not path.is_file():
+            raise ConfigError([f'{path}: no such config file'])
+        try:
+            data = json.loads(read(path))
+        except ValueError as error:
+            raise ConfigError([f'{path}: not valid JSON: {error}'])
     problems = []
     if not isinstance(data, dict):
         raise ConfigError([f'{path}: the config must be one JSON object'])
@@ -294,27 +315,12 @@ def projects_dir():
     return Path(os.environ.get('DEV_PLATFORM_PROJECTS') or Path.home() / '.config/dev-platform/projects')
 
 
-def find_config(project, conf_file=None):
-    """The config of a named project: a file of the projects folder, or the tree= field of a repos.conf line."""
+def find_config(project):
+    """The config of a named project: its record in the projects folder."""
     record = projects_dir() / f'{project}.json'
     if record.is_file():
         return record
-    conf_file = Path(conf_file or os.environ.get('DEV_PLATFORM_REPOS') or Path.home() / '.config/dev-platform/repos.conf')
-    seen = []
-    if conf_file.is_file():
-        for line in read(conf_file).splitlines():
-            fields = line.split('#', 1)[0].split()
-            tree = next((f[5:] for f in fields if f.startswith('tree=')), None)
-            if tree and len(fields) >= 2:
-                candidate = Path(fields[1]).expanduser() / tree
-                seen.append(str(candidate))
-                try:
-                    if json.loads(read(candidate)).get('name') == project:
-                        return candidate
-                except (OSError, ValueError):
-                    continue
-    raise ConfigError([f'no project named {project}: the projects folder has no record {project}.json, and no repos.conf line names a config (tree=<path>) with that name'
-                       + (f'; configs seen: {", ".join(seen)}' if seen else '')])
+    raise ConfigError([f'no project named {project}: the projects folder has no record {project}.json'])
 
 
 # ---------- the source of a repository (SDD-ST-10) ----------
@@ -1715,11 +1721,18 @@ def main(argv=None):
     ap.add_argument('--junit', help='test: keep this JUnit report of a pipeline as the result of the present revision; run no test')
     ap.add_argument('--proved', action='store_true',
                     help='check: fail also when an SDD item is not proved and names no gap')
+    ap.add_argument('--root', help='with --layout: the checkout; the default is this folder')
+    settings_arguments(ap)
     args = ap.parse_args(argv)
     try:
-        if not args.config and not args.project:
-            raise ConfigError(['give a project name or --config FILE'])
-        conf = load_config(args.config or find_config(args.project))
+        if args.layout:
+            if args.config or args.project:
+                raise ConfigError(['give a project name, --config FILE or --layout, not two of them'])
+            conf = arguments_config(args.root or os.getcwd(), args.layout, args.sdd, args.tdd, args.spec_root)
+        elif not args.config and not args.project:
+            raise ConfigError(['give a project name, --config FILE, or the settings: --layout with --sdd, --tdd, --spec-root'])
+        else:
+            conf = load_config(args.config or find_config(args.project))
         if conf['parts'] is not None and 'tree' not in conf['parts']:
             raise ConfigError([f'the tree is off for the project {conf["name"]}: its record does not list the part "tree" (SDD-PJ-04)'])
         if args.command == 'test':

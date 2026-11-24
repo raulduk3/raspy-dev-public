@@ -56,7 +56,11 @@ def context(args):
     """The config and the tree for the folder of the command: its repository is compiled as the checkout that it is."""
     here = Path(args.root or os.getcwd()).resolve()
     top = st.git(here, 'rev-parse', '--show-toplevel')
-    if args.config:
+    if getattr(args, 'layout', None):
+        if args.config:
+            raise Refused('give --config FILE or --layout, not both')
+        conf = st.arguments_config(top or here, args.layout, args.sdd, args.tdd, args.spec_root)
+    elif args.config:
         conf = st.load_config(args.config)
     else:
         if not top:
@@ -77,7 +81,7 @@ def context(args):
 
 
 def config_of(top):
-    """The tree config that a registry line names for the repository of this checkout."""
+    """The project record that names the repository of this checkout."""
     common = st.git(top, 'rev-parse', '--path-format=absolute', '--git-common-dir')
     for record in sorted(st.projects_dir().glob('*.json')) if st.projects_dir().is_dir() else []:
         try:
@@ -90,15 +94,7 @@ def config_of(top):
                         return record
         except (OSError, ValueError, AttributeError):
             continue
-    conf_file = Path(os.environ.get('DEV_PLATFORM_REPOS') or Path.home() / '.config/dev-platform/repos.conf')
-    for line in st.read(conf_file).splitlines() if conf_file.is_file() else []:
-        fields = line.split('#', 1)[0].split()
-        tree = next((f[5:] for f in fields if f.startswith('tree=')), None)
-        if tree and len(fields) >= 2:
-            checkout = str(Path(fields[1]).expanduser())
-            if st.git(checkout, 'rev-parse', '--path-format=absolute', '--git-common-dir') == common:
-                return Path(checkout) / tree
-    raise Refused('no registry line names a tree config for this repository; give --config FILE')
+    raise Refused('no project record names this repository; give --config FILE')
 
 
 def state(conf):
@@ -1055,8 +1051,10 @@ def main(argv):
     common.add_argument('--root', default=argparse.SUPPRESS, help='the checkout to work on; the default is this folder')
     ap = argparse.ArgumentParser(prog='dev-spec', description='Explain and change a specification through commands.', parents=[common])
     sub = ap.add_subparsers(dest='command', required=True)
-    sub.add_parser('find', parents=[common]).add_argument('query')
-    sub.add_parser('why', parents=[common]).add_argument('target')
+    settings = argparse.ArgumentParser(add_help=False)   # a read command works on a folder that no record holds (SDD-PJ-09)
+    st.settings_arguments(settings)
+    sub.add_parser('find', parents=[common, settings]).add_argument('query')
+    sub.add_parser('why', parents=[common, settings]).add_argument('target')
     sub.add_parser('open', parents=[common])
     p = sub.add_parser('set', parents=[common])
     p.add_argument('id')

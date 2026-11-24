@@ -2,9 +2,11 @@
 # Global git pre-commit hook (core.hooksPath), for every local interface: Claude Code, Codex, Pi,
 # Zed and a plain terminal.
 #
-# In a repository whose repos.conf line has decisions=frozen (lib/ai_ecosystem/tiers.py), it
-# refuses a commit that adds, changes, renames or deletes a file under docs/decisions/, or that
-# adds a file named SPEC-AMENDMENTS.md. Agents edit the specification directly; git records it.
+# In a repository whose tier record has decisions=none (the default of a registered line) or
+# decisions=frozen (lib/ai_ecosystem/tiers.py), it refuses a commit that adds, changes, renames or
+# deletes a file under docs/decisions/, or that adds a file named SPEC-AMENDMENTS.md. The
+# specification itself changes; git records it. With decisions=none a deletion is allowed: the
+# owner can remove the old records, and the repository then holds none.
 # Where the control of the specification is on for the project, it refuses a specification change that no
 # dev-spec command made. Then it runs the repository's own pre-commit hook, so a global hooksPath does not turn it off.
 set -u
@@ -25,20 +27,21 @@ tiers_py="$here/../../lib/ai_ecosystem/tiers.py"
 if [ -f "$tiers_py" ]; then
   top="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE git rev-parse --show-toplevel 2>/dev/null || pwd)"
   found="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE python3 -I "$tiers_py" --field decisions "$top" 2>/dev/null || true)"
-  [ "$found" = frozen ] && decisions=frozen
+  case "$found" in none|frozen) decisions="$found" ;; esac
   # Where the project record turns the Git rules off, this hook applies no Git rule (SDD-PJ-04). The control of
   # the specification is a different part: its check below still runs.
   off="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE python3 -I "$tiers_py" --field off "$top" 2>/dev/null || true)"
   case ",$off," in *,git,*) decisions=open ;; esac
 fi
 
-if [ "$decisions" = frozen ]; then
-  touched="$(git diff --cached --no-renames --name-only -- docs/decisions 2>/dev/null)"
+if [ "$decisions" != open ]; then
+  filter=; [ "$decisions" = none ] && filter=--diff-filter=d   # none: a deletion of an old record is allowed
+  touched="$(git diff --cached --no-renames --name-only $filter -- docs/decisions 2>/dev/null)"
   ledger="$(git diff --cached --no-renames --name-only --diff-filter=A 2>/dev/null | grep -E '(^|/)SPEC-AMENDMENTS\.md$' || true)"
   if [ -n "$touched$ledger" ]; then
-    printf 'dev-platform pre-commit: this repository has decisions=frozen: decision records are read-only history\n' >&2
+    printf 'dev-platform pre-commit: this repository has decisions=%s: it keeps no decision record, and old records are read-only history\n' "$decisions" >&2
     printf '%s\n' $touched $ledger | head -10 | sed 's/^/  /' >&2
-    printf 'dev-platform pre-commit: edit docs/spec/<domain>/sdd.md and tdd.md directly; unstage these paths (git restore --staged <path>)\n' >&2
+    printf 'dev-platform pre-commit: change the specification itself and give the reason in the commit message; unstage these paths (git restore --staged <path>)\n' >&2
     exit 1
   fi
 fi

@@ -25,7 +25,7 @@ class Fixture(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self.projects, self.conf = self.tmp / 'projects', self.tmp / 'repos.conf'
         self.env = dict(os.environ, DEV_PLATFORM_PROJECTS=str(self.projects), DEV_PLATFORM_REPOS=str(self.conf),
-                        DEV_PLATFORM_PERSONAL=str(self.tmp / 'personal.conf'), DEV_PLATFORM_ENV_DIR=str(self.tmp / 'env.d'),
+                        DEV_PLATFORM_ENV_DIR=str(self.tmp / 'env.d'),
                         DEV_PLATFORM_STATE=str(self.tmp / 'state'), GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM='1')
         self.env.pop('DEV_PLATFORM_CHECK', None)
         for name in ('own', 'company', 'domains'):
@@ -34,9 +34,8 @@ class Fixture(unittest.TestCase):
             (repo / 'a.txt').write_text('a\n')
             sh(repo, 'git', 'add', '-A')
             sh(repo, 'git', '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-q', '-m', 'first')
-        (self.tmp / 'personal.conf').write_text(f'{self.tmp}/own\n')
         self.conf.write_text('# a note of the owner\n'
-                             f'me/own {self.tmp}/own local main\n'
+                             f'me/own {self.tmp}/own local main tier=2\n'
                              f'Org/company {self.tmp}/company owner develop keep=main,release slots=4\n'
                              f'me/domains {self.tmp}/domains local main tier=1 spec=domains decisions=frozen tasks=json\n')
         (self.tmp / 'env.d').mkdir()
@@ -63,10 +62,10 @@ class Record(Fixture):
         self.assertFalse(self.projects.exists())   # nothing is written with no --write
         self.run_cli('import', '--write')
         own, company, domains = (self.record(n)['repositories'][0] for n in ('own', 'company', 'domains'))
-        self.assertEqual((own['remote'], own['git']['tier'], own['git']['mode'], own['git']['base']), ('me/own', 2, 'local', 'main'))   # the personal list
+        self.assertEqual((own['remote'], own['git']['tier'], own['git']['mode'], own['git']['base']), ('me/own', 2, 'local', 'main'))
         self.assertEqual(company['git'], {'tier': 3, 'mode': 'owner', 'base': 'develop', 'forge': 'github', 'keep': ['main', 'release'],
                                           'slots': 4, 'large': False})
-        self.assertEqual(company['work'], {'tracker': 'github', 'tasks': 'md', 'decisions': 'open', 'incoming': 'state',
+        self.assertEqual(company['work'], {'tracker': 'github', 'tasks': 'md', 'decisions': 'none', 'incoming': 'state',
                                            'check_path': ['~/.bun/bin'], 'env': {'BUN_PATH': '~/.bun/bin/bun'}})
         self.assertEqual((domains['layout'], domains['work']['decisions'], domains['work']['tasks']), ('domains', 'frozen', 'json'))
         self.assertIn('2 files differ', self.run_cli('sync').stdout)
@@ -74,7 +73,6 @@ class Record(Fixture):
         done = self.run_cli('sync', '--write')
         self.assertIn('# a note of the owner', (self.tmp / 'repos.conf.by-hand').read_text())   # the notes of the owner are kept one time
         self.assertTrue(self.conf.read_text().startswith('# Made by dev-project sync'))
-        (self.tmp / 'personal.conf').unlink()   # each line has its tier now: the personal list is read for no line
         self.assertEqual({name: self.tier(name) for name in before}, before)
         self.assertIn(f'export PATH={Path.home()}/.bun/bin:"$PATH"', (self.tmp / 'env.d/company.sh').read_text())
         self.run_cli('sync', '--check')
@@ -248,6 +246,132 @@ class Parts(Fixture):
         data['parts'] = ['git', 'colour']
         (self.projects / 'own.json').write_text(json.dumps(data))
         self.assertIn('parts is a list of: git, check, tree, control, loop, team', self.run_cli('sync', expected=1).stderr)
+
+
+SDD = ('# SDD\n\n## AB. Area\n<!-- section: SDD-AB -->\n\n**AB-01.** The tool MUST read the input.\n'
+       '<!-- id: SDD-AB-01 | tdd: none -->\n')
+
+
+class Connect(Fixture):
+    """connect writes a record and changes no tracked file; a session in the folder gets its rules (SDD-PJ-05, SDD-PJ-07)."""
+
+    def setUp(self):
+        super().setUp()
+        self.run_cli('import', '--write')   # the registry lines of the fixture have records, so sync can run
+        repo = self.foreign = self.tmp / 'Foreign'
+        sh(self.tmp, 'git', 'init', '-q', '-b', 'main', str(repo))
+        (repo / 'bin').mkdir()
+        (repo / 'bin/check').write_text('#!/bin/sh\nexit 0\n')
+        (repo / 'bin/check').chmod(0o755)
+        (repo / 'docs/spec').mkdir(parents=True)
+        (repo / 'docs/spec/SDD.md').write_text(SDD)
+        (repo / 'AGENTS.md').write_text('Repository rule: say the word marigold.\n')
+        (repo / '.gitignore').write_text('*.log\n')
+        sh(repo, 'git', 'add', '-A')
+        sh(repo, 'git', '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-q', '-m', 'first')
+        sh(repo, 'git', 'remote', 'add', 'origin', 'git@github.com:Other/foreign-tool.git')
+
+    def snapshot(self, repo):
+        """The status, the index and the content of each file of the checkout (tracked or not)."""
+        files = {str(p.relative_to(repo)): p.read_bytes() for p in sorted(repo.rglob('*')) if p.is_file() and '.git' not in p.relative_to(repo).parts}
+        return (sh(repo, 'git', 'status', '--porcelain', '--ignored'), sh(repo, 'git', 'ls-files', '-s'), files,
+                (repo / '.git/info/exclude').read_bytes() if (repo / '.git/info/exclude').exists() else b'')
+
+    def test_connect_proposes_each_value_and_writes_nothing_with_no_confirmation(self):   # SDD-PJ-05
+        done = self.run_cli('connect', str(self.foreign / 'docs'))   # a folder in the checkout: the checkout is connected
+        for row in ('name: foreign', 'remote: Other/foreign-tool', 'tier: 3', 'mode: owner', 'base: main', 'forge: github',
+                    'tracker: github', 'check: bin/check', 'layout: single'):
+            self.assertIn(f'  {row}\n', done.stdout)
+        self.assertIn('Nothing written', done.stdout)
+        self.assertFalse((self.projects / 'foreign.json').exists())
+        sh(self.foreign, 'git', 'remote', 'add', 'upstream', 'https://example.invalid/up/foreign.git')
+        (self.foreign / 'bin/check').unlink()
+        (self.foreign / 'package.json').write_text('{"scripts": {"check": "tsc"}}')
+        done = self.run_cli('connect', str(self.foreign), '--layout', 'none')
+        self.assertIn('  tier: 4\n', done.stdout)   # a fork has upstream
+        self.assertIn('  check: bun run check\n', done.stdout)   # the order of hooks/check-once.sh
+        self.assertIn('  layout: none\n', done.stdout)
+
+    def test_connect_writes_the_record_and_changes_no_file_of_the_repository(self):   # SDD-PJ-05
+        before = self.snapshot(self.foreign)
+        self.assertIn('dev-project sync --write', self.run_cli('connect', str(self.foreign), '--yes').stdout)
+        self.assertEqual(self.snapshot(self.foreign), before)
+        repo = self.record('foreign')['repositories'][0]
+        self.assertEqual((repo['path'], repo['layout'], repo['remote']), (str(self.foreign), 'single', 'Other/foreign-tool'))
+        self.assertEqual(repo['git'], {'tier': 3, 'mode': 'owner', 'base': 'main', 'forge': 'github'})
+        self.assertEqual(repo['work'], {'tracker': 'github', 'tasks': 'md', 'decisions': 'none', 'incoming': 'state', 'check': 'bin/check'})
+        self.run_cli('sync', '--write')
+        self.assertEqual((self.tier('Foreign')['tier'], self.tier('Foreign')['repo']), ('3', 'Other/foreign-tool'))
+        done = subprocess.run([sys.executable, '-I', str(SPEC), 'check', 'foreign'], env=self.env, capture_output=True, text=True)
+        self.assertIn('1 SDD', done.stdout, done.stderr)
+        self.assertEqual(self.snapshot(self.foreign), before)
+
+    def test_a_second_connect_of_the_same_repository_is_refused(self):   # SDD-PJ-05
+        self.assertIn('the record own.json exists', self.run_cli('connect', str(self.foreign), '--name', 'own', expected=1).stderr)
+        self.run_cli('connect', str(self.foreign), '--yes')
+        self.assertIn('already holds', self.run_cli('connect', str(self.foreign), '--name', 'other', '--yes', expected=1).stderr)
+        sh(self.foreign, 'git', 'worktree', 'add', '-q', '--detach', str(self.tmp / 'wt'))
+        self.assertIn('already holds', self.run_cli('connect', str(self.tmp / 'wt'), '--yes', expected=1).stderr)
+        plain = self.tmp / 'plain'
+        plain.mkdir()
+        self.assertIn('is no Git checkout', self.run_cli('connect', str(plain), expected=1).stderr)
+
+    def test_a_ghost_connect_names_the_side_folder_and_keeps_the_work_out_of_the_repository(self):   # SDD-PJ-05, SDD-PJ-10
+        before = self.snapshot(self.foreign)
+        side = self.tmp / 'rigs/foreign'
+        self.run_cli('connect', str(self.foreign), '--ghost', '--side', str(side), '--yes')
+        self.assertEqual(self.snapshot(self.foreign), before)
+        self.assertEqual(sh(side, 'git', 'rev-parse', '--show-toplevel'), str(side))   # a new Git repository
+        repo = self.record('foreign')['repositories'][0]
+        self.assertEqual((repo['spec_root'], repo['layout']), (str(side), 'single'))
+        self.assertEqual((repo['work']['tracker'], repo['work']['decisions'], repo['work']['incoming']), ('side', 'frozen', 'state'))
+        self.run_cli('sync', '--write')
+        self.assertEqual((self.tier('Foreign')['tracker'], self.tier('Foreign')['side']), ('side', str(side)))
+        sh(self.tmp, 'git', 'init', '-q', str(self.tmp / 'second'))
+        done = self.run_cli('connect', str(self.tmp / 'second'), '--ghost', '--side', str(self.tmp / 'second/rig'), '--yes', expected=1)
+        self.assertIn('is in the checkout', done.stderr)   # the side folder is outside the repository
+        self.assertFalse((self.projects / 'second.json').exists() or (self.tmp / 'second/rig').exists())
+
+    def test_a_session_in_a_connected_folder_gets_the_parts_and_their_rules(self):   # SDD-PJ-07
+        hook = json.loads((ROOT / 'hooks/claude-settings.hooks.json').read_text())['hooks']['SessionStart'][0]['hooks'][0]
+        self.assertIn('bin/dev-project brief --hook', hook['command'])
+        brief = lambda cwd: subprocess.run([sys.executable, '-I', str(CLI), 'brief', '--hook'], input=json.dumps({'cwd': str(cwd)}),
+                                           env=self.env, capture_output=True, text=True)
+        done = brief(self.foreign)
+        self.assertEqual((done.returncode, done.stdout), (0, ''))   # no record: no text
+        self.run_cli('connect', str(self.foreign), '--yes')
+        data = self.record('foreign')
+        data['parts'] = ['git', 'check', 'tree']
+        (self.projects / 'foreign.json').write_text(json.dumps(data))
+        done = brief(self.foreign / 'docs/spec')
+        self.assertEqual(done.returncode, 0, done.stderr)
+        out = json.loads(done.stdout)['hookSpecificOutput']
+        self.assertEqual(out['hookEventName'], 'SessionStart')
+        text = out['additionalContext']
+        for words in ('the project foreign', 'Tier 3, protected company', 'Base branch: main', 'Parts that are on: git (',
+                      'Parts that are off: control, loop, team', 'Specification: layout single', 'Tasks: GitHub issues of Other/foreign-tool',
+                      'Check: bin/check'):
+            self.assertIn(words, text)
+        self.assertNotIn('marigold', text)   # the instructions of the repository do not give the text
+        self.assertEqual(self.run_cli('brief', str(self.foreign)).stdout.strip(), text)
+        self.assertIn('no record holds', self.run_cli('brief', str(self.tmp), expected=1).stderr)
+        bad = subprocess.run([sys.executable, '-I', str(CLI), 'brief', '--hook'], input='not json', env=self.env, capture_output=True, text=True)
+        self.assertEqual((bad.returncode, bad.stdout), (0, ''))   # a fault never stops a session
+
+    def test_the_read_commands_take_the_settings_as_arguments_where_no_record_exists(self):   # SDD-PJ-09
+        spec = lambda *args: subprocess.run([sys.executable, '-I', str(SPEC), *args], cwd=self.foreign, env=self.env, capture_output=True, text=True)
+        done = spec('compile', '--layout', 'single', '--no-fetch')
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn('Foreign: 1 SDD', done.stdout)
+        self.assertEqual(sh(self.foreign, 'git', 'status', '--porcelain'), '')   # the page is in the Git folder
+        done = spec('check', '--layout', 'single', '--root', str(self.foreign))
+        self.assertIn('1 SDD', done.stdout, done.stderr)
+        done = spec('why', 'AB-01', '--layout', 'single')
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn('The tool MUST read the input', done.stdout)
+        self.assertEqual(spec('find', 'input', '--layout', 'single').returncode, 0)
+        self.assertIn('not two of them', spec('check', 'own', '--layout', 'single').stderr)
+        self.assertIn('the sections layout needs', spec('check', '--layout', 'sections').stderr)
 
 
 if __name__ == '__main__':

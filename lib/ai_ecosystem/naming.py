@@ -313,10 +313,6 @@ def problems(title):
 
 def main(argv=None):
     import argparse
-    args_list = sys.argv[1:] if argv is None else list(argv)
-    if args_list[:1] == ['rename']:
-        from .retitle import main as rename_main
-        return rename_main(args_list[1:])
     p = argparse.ArgumentParser(prog='ai-title', description='Format and check unified session titles.')
     sub = p.add_subparsers(dest='cmd', required=True)
     f = sub.add_parser('format', help='print a title for the current or given context')
@@ -338,7 +334,6 @@ def main(argv=None):
     c = sub.add_parser('check', help='exit 1 and list problems when a title does not conform')
     c.add_argument('title')
     c.add_argument('--json', action='store_true')
-    sub.add_parser('rename', help='rename historical sessions to this format; see ai-title rename --help')
     a = sub.add_parser('parse', help='print the fields of a conforming title as JSON')
     a.add_argument('title')
     args = p.parse_args(argv)

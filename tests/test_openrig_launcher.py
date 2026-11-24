@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -49,13 +50,17 @@ elif a[0] == 'up' and '--plan' in a and os.environ.get('PLAN_FAIL'): sys.exit(7)
         rig.chmod(0o755)
         self.env = dict(os.environ, DEV_WORKSPACE_RUNTIME=str(self.root), CALLS=str(self.log),
                         CODEX_HOME='/not-the-personal-store',
-                        DEV_PLATFORM_PERSONAL=str(self.root / 'personal.conf'),
+                        DEV_PLATFORM_REPOS=str(self.root / 'repos.conf'),
                         SEATS=str(self.root / 'seats.jsonl'),
                         DEV_WORKSPACE_STATE_DIR=str(self.root / 'state'),
                         DEV_WORKSPACE_ADD_WAIT='0')
 
     def call(self, *args):
         return subprocess.run([str(LAUNCHER), *args], env=self.env, text=True, capture_output=True)
+
+    def register(self, checkout):
+        """Name CHECKOUT in the fixture registry at tier 2 (a personal repository)."""
+        (self.root / 'repos.conf').write_text(f'me/personal {checkout} local main tier=2\n')
 
     def records(self):
         return [json.loads(line) for line in self.log.read_text().splitlines()]
@@ -124,7 +129,7 @@ elif a[0] == 'up' and '--plan' in a and os.environ.get('PLAN_FAIL'): sys.exit(7)
         subprocess.run(['git', 'init', '-q', str(repo)], check=True)
         alias = self.root / 'alias'
         alias.symlink_to(repo, target_is_directory=True)
-        (self.root / 'personal.conf').write_text(str(alias) + '\n')
+        self.register(alias)
         result = self.call('start', 'codex', '--cwd', str(repo))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len([r for r in self.records() if r['args'][0] == 'up']), 2)
@@ -133,7 +138,7 @@ elif a[0] == 'up' and '--plan' in a and os.environ.get('PLAN_FAIL'): sys.exit(7)
     def personal_repo(self):
         repo = self.root / 'personal'
         subprocess.run(['git', 'init', '-q', str(repo)], check=True)
-        (self.root / 'personal.conf').write_text(str(repo) + '\n')
+        self.register(repo)
         return repo
 
     def launched_spec(self, *args):
@@ -184,7 +189,7 @@ elif a[0] == 'up' and '--plan' in a and os.environ.get('PLAN_FAIL'): sys.exit(7)
         self.assertTrue(commands[-1][1].endswith('integrations/openrig/engineer.yaml'))
         repo = self.root / 'personal'
         subprocess.run(['git', 'init', '-q', str(repo)], check=True)
-        (self.root / 'personal.conf').write_text(str(repo) + '\n')
+        self.register(repo)
         result = self.call('start', 'engineer', '--cwd', str(repo))
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('team folder', result.stderr)
@@ -230,6 +235,7 @@ class WorkerSeats(unittest.TestCase):
     """add-worker and remove-worker against a real Git worktree and the fake rig."""
     call = WorkspaceLauncherTests.call
     records = WorkspaceLauncherTests.records
+    register = WorkspaceLauncherTests.register
 
     def setUp(self):
         WorkspaceLauncherTests.setUp(self)
@@ -241,7 +247,7 @@ class WorkerSeats(unittest.TestCase):
         git('-c', 'user.name=t', '-c', 'user.email=t@t.invalid', 'commit', '-qm', 'init')
         self.wt = self.repo / '.claude/worktrees/loop-12-fix-parser'
         git('worktree', 'add', '-q', '-b', 'fix/fix-parser-12', str(self.wt))
-        (self.root / 'personal.conf').write_text(str(self.repo) + '\n')
+        self.register(self.repo)
         self.env['RIGS'] = json.dumps([{'rigId': 'R1', 'name': 'development-engineer'}])
 
     def add(self, *extra):
@@ -264,12 +270,39 @@ class WorkerSeats(unittest.TestCase):
         self.assertIn('.openrig/', exclude)
         self.assertEqual(self.add().returncode, 2)  # one seat per worktree
 
+    def test_a_slot_of_the_loop_takes_its_seat_name_from_the_task_mark(self):
+        git = lambda *a: subprocess.run(['git', '-C', str(self.repo), *a], check=True, capture_output=True)
+        self.wt = self.repo / '.claude/worktrees/slot-1'
+        git('worktree', 'add', '-q', '--detach', str(self.wt))
+        # A free slot (no task mark) and a detached worktree that is not a slot stay refused.
+        self.assertIn('slot of the loop', self.add().stderr)
+        (self.wt / '.worker-issue').write_text('7\n')
+        result = self.add('--purpose', 'fix')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('workers.issue-7 on slot-1: tmux attach -t workers-issue-7@R1', result.stdout)
+        fragment = Path([r['args'] for r in self.records() if r['args'][0] == 'add'][0][3]).read_text()
+        self.assertIn('id: issue-7\n', fragment)
+        self.assertIn(f'cwd: "{self.wt.resolve()}"', fragment)
+        removed = self.call('remove-worker', '--rig', 'development-engineer', '--cwd', str(self.wt))
+        self.assertEqual(removed.returncode, 0, removed.stderr)
+        self.assertIn(['remove', 'R1', 'workers.issue-7'], [r['args'] for r in self.records()])
+        other = self.root / 'elsewhere/slot-2'
+        git('worktree', 'add', '-q', '--detach', str(other))
+        (other / '.worker-issue').write_text('8\n')
+        self.wt = other
+        refused = self.add()
+        self.assertEqual(refused.returncode, 2)
+        self.assertIn('slot of the loop', refused.stderr)
+        self.assertEqual(len([r for r in self.records() if r['args'][0] == 'add']), 1)
+
     def test_a_seat_on_a_named_account_is_recorded_for_its_usage(self):
-        service = self.root / 'account-service'
-        service.write_text('#!/bin/sh\necho \'{"launch_allowed": true, "member": {"runtime": "claude-code"}}\'\n')
-        service.chmod(0o755)
+        # The seat launcher asks the one resolver: a verified sign-in record makes the account eligible.
+        state = self.root / 'accounts'
+        state.mkdir()
+        (state / 'anthropic-bravo.claude.json').write_text(json.dumps({'identity': 'owner@example.invalid', 'verified': True}))
         usage = self.root / 'usage'
-        self.env.update(DEV_WORKSPACE_ACCOUNT_SERVICE=str(service), OL_USAGE_DIR=str(usage))
+        self.env.update(OL_ACCOUNTS_STATE=str(state), OL_USAGE_DIR=str(usage), OL_CHAT=str(self.root / 'chat'),
+                        DEV_PLATFORM_ACCOUNTS_TEMPLATE=str(LAUNCHER.parents[1] / 'tests/support/accounts.json'))
         result = self.add('--account', 'anthropic-bravo')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('on anthropic-bravo', result.stdout)
@@ -308,7 +341,7 @@ class WorkerSeats(unittest.TestCase):
         self.assertIn('linked worktree', checkout.stderr)
         self.env['RIGS'] = '[]'
         self.assertIn('not one running rig', self.add().stderr)
-        (self.root / 'personal.conf').write_text('')
+        (self.root / 'repos.conf').write_text('')
         self.assertIn('professional', self.add().stderr)
         self.assertFalse(any(r['args'][0] == 'add' for r in self.records()))
 
@@ -376,3 +409,17 @@ if a == ['show-environment', '-g']:
         cwd.mkdir()
         self.assertEqual(self.call('plan', 'codex', '--cwd', str(cwd)).returncode, 0)
         self.assertEqual([r for r in self.records() if 'tmux' in r], [])
+
+
+@unittest.skipUnless(shutil.which('node'), 'node is not installed')
+class SeatExtensions(unittest.TestCase):
+    """The offline check of the Pi seat extensions: the guard, the advice tool and the worker limits."""
+
+    def test_guard_advice_and_worker_limits(self):
+        root = LAUNCHER.parents[1]
+        env = {**os.environ, 'DEV_PLATFORM_PSTACK_SYSTEM': '/nonexistent', 'DEV_PLATFORM_PSTACK_MODELS': '/nonexistent'}
+        env.pop('OPENROUTER_API_KEY', None)
+        result = subprocess.run(['node', str(root / 'integrations/pi/check-seat-extensions.mjs')],
+                                capture_output=True, text=True, env=env, cwd=root)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('seat extensions ok', result.stdout)

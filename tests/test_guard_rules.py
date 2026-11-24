@@ -26,9 +26,7 @@ class GuardFixture(unittest.TestCase):
         self.env.update(HOME=str(self.home), GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull,
                         GIT_AUTHOR_NAME='Test', GIT_AUTHOR_EMAIL='test@example.invalid',
                         GIT_COMMITTER_NAME='Test', GIT_COMMITTER_EMAIL='test@example.invalid',
-                        DEV_PLATFORM_REPOS=str(self.config / 'repos.conf'),
-                        DEV_PLATFORM_PERSONAL=str(self.config / 'personal.conf'))
-        (self.config / 'personal.conf').write_text('')
+                        DEV_PLATFORM_REPOS=str(self.config / 'repos.conf'))
         self.repo = self.tmp / 'repo'
         self.mine = self.tmp / 'mine'
         self.other = self.tmp / 'other'
@@ -120,10 +118,10 @@ class GuardPush(GuardFixture):
         self.refused(['git push -u origin claude/x',
                       'git commit -m "Co-authored-by: Claude <noreply@anthropic.com>"'])
 
-    def test_a_line_without_tier_follows_personal_conf(self):
+    def test_a_line_without_tier_is_tier_3(self):
         (self.config / 'repos.conf').write_text(f'test/repo\t{self.repo}\towner\tmain\n')
         self.refused(['git commit -m "Generated with Claude"'])
-        (self.config / 'personal.conf').write_text(f'{self.repo}\n')
+        (self.config / 'repos.conf').write_text(f'test/repo\t{self.repo}\towner\tmain\ttier=2\n')
         self.allowed(['git commit -m "Generated with Claude"'])
 
     def test_an_agent_does_not_set_the_land_variable(self):
@@ -255,6 +253,61 @@ class GuardSharedWorktree(GuardFixture):
         done = subprocess.run([str(bash), str(GUARD)], input=payload, cwd=self.other, env=self.env,
                               capture_output=True, text=True, timeout=60)
         self.assertEqual(done.returncode, 0, done.stderr)
+
+
+class GuardJev(GuardFixture):
+    """The advisory classifier step (SDD-GD-22) with a fake ai-jev on PATH: no network, no paid call."""
+
+    def setUp(self):
+        super().setUp()
+        fakebin = self.tmp / 'jevbin'
+        fakebin.mkdir()
+        self.calls = self.tmp / 'jev.calls'
+        jev = fakebin / 'ai-jev'
+        jev.write_text('#!' + shutil.which('python3') + ' -I\n'
+                       'import json, os, sys\n'
+                       f'with open({str(self.calls)!r}, "a") as f: f.write(json.dumps(sys.argv[1:]) + "\\n")\n'
+                       'print(os.environ.get("FAKE_JEV_ANSWER", ""))\n')
+        jev.chmod(0o755)
+        self.env.update(PATH=f'{fakebin}{os.pathsep}{self.env["PATH"]}', DEV_PLATFORM_JEV_GUARD='1')
+
+    def answer(self, risk, probability):
+        self.env['FAKE_JEV_ANSWER'] = json.dumps({'answers': {'risk_level': {'choice': risk},
+                                                              'requires_confirmation': {'probability': probability}}})
+
+    def jev_calls(self):
+        return [json.loads(line) for line in self.calls.read_text().splitlines()] if self.calls.exists() else []
+
+    def test_a_permitted_command_that_the_classifier_rates_high_risk_is_refused(self):
+        self.answer('credential_privacy_billing', 0.1)
+        self.refused(['cat ~/.aws/credentials'])
+        self.answer('destructive_or_external', 0.75)
+        self.refused(['rm -r build'])
+        [args, _] = self.jev_calls()
+        self.assertEqual(args[:2], ['decide', 'classify-tool-risk'])
+        state = json.loads(args[args.index('--state') + 1])
+        self.assertEqual(state, {'command': 'cat ~/.aws/credentials', 'cwd': str(self.mine),
+                                 'personal_repository': True})
+
+    def test_a_lower_rating_or_a_bad_answer_leaves_the_result_of_the_rules(self):
+        self.answer('destructive_or_external', 0.74)
+        self.allowed(['rm -r build'])
+        self.answer('read_only', 1.0)
+        self.allowed(['ls'])
+        for answer in ('', 'not json', '{"answers": 3}'):
+            self.env['FAKE_JEV_ANSWER'] = answer
+            self.allowed(['ls'])
+
+    def test_the_classifier_never_permits_a_command_that_a_rule_refuses(self):
+        self.answer('read_only', 0.0)
+        self.refused(['git push --force origin feat/mine'])
+        self.assertEqual(self.jev_calls(), [], 'the classifier gets only a command that each rule permitted')
+
+    def test_the_switch_is_off_by_default(self):
+        self.answer('credential_privacy_billing', 1.0)
+        del self.env['DEV_PLATFORM_JEV_GUARD']
+        self.allowed(['ls'])
+        self.assertEqual(self.jev_calls(), [])
 
 
 if __name__ == '__main__':

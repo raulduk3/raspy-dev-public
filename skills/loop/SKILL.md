@@ -93,20 +93,25 @@ status marker of the items it cites and any lock line, and nothing else under `d
 `docs/decisions/` or `docs/tasks/`; fold refuses the branch and shows the lines otherwise. A
 worker that finds the spec wrong writes `.worker-blocked.md`, and the fix becomes a spec task.
 
-### Spec-direct mode
+### Decision records and spec-direct mode
 
-A `repos.conf` line can carry `spec=domains` and `decisions=frozen` (`dev-loop tier <path>`
-prints both). Then the fold runs `scripts/spec-guard.py` on each branch:
+A `repos.conf` line carries `spec=single|domains` and `decisions=none|frozen|open` (`dev-loop
+tier <path>` prints both). The default is `decisions=none`: the repository keeps no decision
+record. With `none`, `frozen` or `spec=domains` the fold runs `scripts/spec-guard.py` on each branch:
 
-- `decisions=frozen`: every task is refused, a spec task too, when it adds, changes or deletes a
-  file under `docs/decisions/` or adds a `SPEC-AMENDMENTS.md`. The global git pre-commit hook
-  (`hooks/git/pre-commit`) refuses the same commit for every agent and every terminal.
+- `decisions=none` and `decisions=frozen`: every task is refused, a spec task too, when it adds,
+  changes or deletes a file under `docs/decisions/` or adds a `SPEC-AMENDMENTS.md`. The global git
+  pre-commit hook (`hooks/git/pre-commit`) refuses the same commit for every agent and every
+  terminal. With `none`, a deletion of an old decision file is allowed. With `frozen`, intake
+  also changes no specification. With `decisions=open` the
+  repository keeps decision records, and a task that cites one waits until it is accepted.
 - `spec=domains`: a `kind: spec` task may edit `docs/spec/<domain>/` freely. A code task may change
   only the `status:`, `tests:` and `code:` lines of the items it cites (`SDD-…` or `TDD-…` IDs in
   its refs or brief), and the regenerated `docs/spec/index.json`. Any other line under
   `docs/spec/` is refused.
-- A decision that a task cites gates nothing: it is history. A task with a label in
-  `LOOP_GOVERNED_LABELS` waits until the owner removes the label or gives it to a person.
+- With `none` and `frozen`, a decision that a task cites gates nothing: it is history. A task
+  with a label in `LOOP_GOVERNED_LABELS` waits until the owner removes the label or gives it to
+  a person.
 - The worker brief tells the worker the same rules and points to the repository's `AGENTS.md`.
 
 ## Goal forge
@@ -134,10 +139,10 @@ With `LOOP_SEAT_RIG=<running rig>`, dispatch gives each task an interactive seat
 `LOOP_SEAT_ACCOUNT` or its native home) and records the rig, so fold can release the seat.
 
 With `LOOP_RUNTIME=pi`, a headless worker is one Pi run on the OpenRouter key instead of Claude
-Code: the key comes from the environment by name (the API rig's unit holds it; dispatch refuses
+Code: the key comes from the environment by name (`OPENROUTER_API_KEY`; dispatch refuses
 without it), the model is the model file's line for the task resolved for openrouter, and the
 platform guard, the advice tool and the turn and billed-token caps (`LOOP_WORKER_TOKEN_LIMIT`)
-load as Pi extensions. `api-rig` sets this; see `docs/api-rig.md`. A
+load as Pi extensions. A
 blocked worker is never folded, so its seat stays until the owner or control seat releases it with
 `dev-workspace remove-worker --rig <rig> --cwd <worktree>`. See `docs/rig-working-branches.md`.
 

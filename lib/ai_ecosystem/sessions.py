@@ -21,7 +21,7 @@ from . import adapters, transcript
 from .store import MAX_HANDOFF, RevisionConflict, Store, check_id, session_id
 
 NATIVE_ID_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
-MERGED = ('cwd', 'title', 'branch', 'updated_at', 'format', 'native')
+MERGED = ('cwd', 'title', 'branch', 'updated_at', 'native')
 KEPT = ('title_override', 'has_handoff', 'conversation_id', 'derived', 'launch')
 AGENTS = ('assistant', 'ops', 'engineer')
 
@@ -68,13 +68,10 @@ def scan(store, sources, limit):
         source_info = {'runtime': src.runtime, 'store': src.store, 'owner': src.owner}
         try:
             for rec in src.read():
-                if rec.get('truncated'):
-                    truncated = True
-                elif len(records) >= limit:
+                if len(records) >= limit:
                     truncated = True
                     break
-                else:
-                    records.append(rec)
+                records.append(rec)
         except Exception as exc:  # one broken source must not touch any other source
             status[src.key] = dict(source_info, state='unavailable' if isinstance(exc, FileNotFoundError) else 'error',
                                    error=type(exc).__name__, at=time.time())
@@ -82,8 +79,7 @@ def scan(store, sources, limit):
             continue
         seen = set()
         for rec in records:
-            native_store = rec.get('identity_store', src.store)
-            sid = session_id(src.runtime, native_store, rec['native_id'])
+            sid = session_id(src.runtime, src.store, rec['native_id'])
             seen.add(sid)
             with store.lock(sid):
                 old = store.get(sid) or {}
@@ -94,10 +90,9 @@ def scan(store, sources, limit):
                     new['derived'] = derived
                 if rec.get('launch'):
                     new['launch'] = rec['launch']
-                new.update(id=sid, runtime=src.runtime, store=native_store, source=src.key, owner=src.owner,
+                new.update(id=sid, runtime=src.runtime, store=src.store, source=src.key, owner=src.owner,
                            native_id=rec['native_id'], missing=bool(rec.get('native', {}).get('transcript_missing')),
-                           status=('stale' if rec.get('native', {}).get('transcript_missing') else
-                                   'unsupported' if rec['format'] != 'supported' else 'unknown'))
+                           status='stale' if rec.get('native', {}).get('transcript_missing') else 'unknown')
                 if {k: old.get(k) for k in new} != new:
                     store.put(new)
                     store.event(sid, 'scan', source=src.key)
@@ -120,10 +115,6 @@ def scan(store, sources, limit):
 
 def resume_plan(m):
     handoff = {'supported': False, 'runtime': m['runtime']}
-    if m['runtime'] == 'openclaw':
-        return dict(handoff, reason='OpenClaw sessions resume only through OpenClaw native UI or session tooling')
-    if m['runtime'] == 'copilot':
-        return dict(handoff, reason='VS Code chat sessions resume only in the VS Code chat view of the workspace')
     if m.get('native', {}).get('archived'):
         return dict(handoff, reason='history from the old machine: read it here, it cannot be resumed')
     if m.get('owner') in AGENTS:
@@ -131,9 +122,13 @@ def resume_plan(m):
     if m.get('owner') != 'user':
         return dict(handoff, reason=f"runtime-owned by {m.get('owner')}; resume through its owner, not the standalone CLI")
     if m['runtime'] == 'pi':
-        return pi_resume_plan(m, handoff)
-    if m.get('status') in ('stale', 'unsupported') or not NATIVE_ID_RE.match(m.get('native_id') or ''):
-        return dict(handoff, reason='native record missing, unsupported or its id is not trustworthy')
+        # A Pi session resumes as its role, through the launcher that hands it the Pi login
+        # (agent_resume_plan). ai-role starts nothing without that folder, so no command
+        # resumes a Pi session of the owner's own store.
+        return dict(handoff, reason='a Pi session resumes as its role, through the launcher (agent); '
+                                    'this one is not the session of a role')
+    if m.get('status') == 'stale' or not NATIVE_ID_RE.match(m.get('native_id') or ''):
+        return dict(handoff, reason='native record missing or its id is not trustworthy')
     cwd = m.get('cwd')
     if not cwd or not os.path.isabs(cwd):
         return dict(handoff, reason='no absolute working directory recorded')
@@ -158,16 +153,6 @@ def resume_plan(m):
             'env': env, 'unset_env': unset_env, 'command': command}
 
 
-def pi_resume_plan(m, handoff):
-    conversation = m.get('native', {}).get('conversation')
-    path = m.get('native', {}).get('transcript_path')
-    if not conversation or not path:
-        return dict(handoff, reason='a Pi session resumes through its role conversation, and this one has none')
-    argv = ['ai-role', 'launch', conversation, '--resume', path]
-    return {'supported': True, 'runtime': 'pi', 'argv': argv, 'cwd': None, 'env': {}, 'unset_env': [],
-            'command': shlex.join(argv)}
-
-
 def metered_through_pi(account):
     """Whether the registry says this account costs API money through Pi; unknown is not metered."""
     from . import registry
@@ -182,8 +167,8 @@ def agent_resume_plan(m):
     """An agent's session resumes as that agent, through the launcher that bounds it."""
     who, runtime = m['owner'], m['runtime']
     handoff = {'supported': False, 'runtime': runtime}
-    if m.get('status') in ('stale', 'unsupported') or not NATIVE_ID_RE.match(m.get('native_id') or ''):
-        return dict(handoff, reason='native record missing, unsupported or its id is not trustworthy')
+    if m.get('status') == 'stale' or not NATIVE_ID_RE.match(m.get('native_id') or ''):
+        return dict(handoff, reason='native record missing or its id is not trustworthy')
     place = [m['cwd']] if who == 'engineer' and m.get('cwd') else []
     if runtime == 'claude':
         argv = ['agent', who, *place, '--', '--resume', m['native_id']]
@@ -244,14 +229,10 @@ def jev_rank_sessions(items, query, limit=30):
 def export(home, since, out):
     """Run as the home's own user: print every session there as one JSON line, with its
     readable text when the transcript changed at or after `since` (epoch seconds)."""
-    for src in adapters.discover(home, openclaw=False):
+    for src in adapters.discover(home):
         info = {'key': src.key, 'runtime': src.runtime, 'store': src.store}
-        truncated = False
         try:
             for rec in src.read():
-                if rec.get('truncated'):
-                    truncated = True
-                    continue
                 mtime = _mtime(rec)
                 if mtime is not None and mtime >= since:
                     readable(src.runtime, rec)
@@ -260,7 +241,7 @@ def export(home, since, out):
             out.write(json.dumps({'source': info, 'error': type(exc).__name__,
                                   'unavailable': isinstance(exc, FileNotFoundError)}) + '\n')
             continue
-        out.write(json.dumps({'source': info, 'done': True, 'truncated': truncated}) + '\n')
+        out.write(json.dumps({'source': info, 'done': True}) + '\n')
 
 
 def ingest(store, owner, stream, launch=None, launch_since=None, limit=100000):
@@ -287,15 +268,12 @@ def ingest(store, owner, stream, launch=None, launch_since=None, limit=100000):
             entry['error'] = FileNotFoundError if item.get('unavailable') else RuntimeError
         elif item.get('done'):
             entry['done'] = True
-            entry['truncated'] = bool(item.get('truncated'))
     sources = []
     for key, entry in sorted(found.items()):
         def read(entry=entry):
             if entry['error'] or not entry['done']:
                 raise (entry['error'] or RuntimeError)('export incomplete')
             yield from entry['records']
-            if entry.get('truncated'):
-                yield {'truncated': True}
         sources.append(adapters.Source(f'{owner}:{key}', entry['runtime'], entry['store'], owner, read))
     return scan(store, sources, limit)
 
@@ -355,12 +333,10 @@ def show_text(store, m):
 
 
 def main(argv=None):
-    p = argparse.ArgumentParser(prog='ai-session', description='One index of Claude Code, Codex, Pi, OpenClaw and VS Code sessions, in every home on the machine.')
+    p = argparse.ArgumentParser(prog='ai-session', description='One index of Claude Code, Codex and Pi sessions, in every home on the machine.')
     p.add_argument('--state-root', help='alternate state root (default ~/.local/state/dev-platform/sessions)')
     sub = p.add_subparsers(dest='cmd', required=True)
     s = sub.add_parser('scan'); s.add_argument('--limit', type=int, default=100000); s.add_argument('--home')
-    s.add_argument('--no-openclaw', action='store_true')
-    s.add_argument('--environments-root', type=Path, help='prepared local OpenRig account environments')
     s = sub.add_parser('list'); s.add_argument('--json', action='store_true'); s.add_argument('--runtime')
     s.add_argument('--owner', help='user (the owner), assistant, ops or engineer')
     s.add_argument('--limit', type=int, default=20, help='maximum results (default 20; 0 means all)')
@@ -415,7 +391,7 @@ def main(argv=None):
         elif a.cmd == 'scan':
             # Agents' sources arrive through ingest; a scan of this home must not call them vanished.
             previous = {k: v for k, v in store.sources().items() if v.get('owner') not in AGENTS}
-            print(json.dumps(scan(store, adapters.discover(a.home, not a.no_openclaw, previous, a.environments_root), a.limit), indent=2, sort_keys=True))
+            print(json.dumps(scan(store, adapters.discover(a.home, previous), a.limit), indent=2, sort_keys=True))
         elif a.cmd == 'ingest':
             launch = dict(item.split('=', 1) for item in a.launch if '=' in item)
             print(json.dumps(ingest(store, a.owner, sys.stdin, launch or None, a.launch_since), indent=2, sort_keys=True))
