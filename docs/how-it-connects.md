@@ -11,7 +11,7 @@ nothing, each with one tool that manages it.
 | Thing | What it is | Where it lives |
 | --- | --- | --- |
 | **Account** | One subscription or key you have signed in to. | `/var/lib/dev-server/accounts/registry.json`, made from the platform's `config/accounts.json` |
-| **Home** | An account's own folder: login, settings, past transcripts. | `~/.claude`, `~/.codex`, or `accounts/<account>` |
+| **Home** | An account's own folder: login, settings, past transcripts. | `~/.claude`, `~/.codex`, or `~/.claude-accounts/<account>` |
 | **Project** | One Git repository. | its checkout, in `~/dev/<project>` or `~/dev/<group>/<project>`; the platform itself is `~/dev/dev-platform` |
 | **Worktree** | One branch of a project, checked out in its own folder. | `<checkout>/.claude/worktrees/` |
 | **Session** | One conversation with one agent, in one folder, as one account. | a transcript inside that account's home |
@@ -38,9 +38,8 @@ The rules that follow from it:
 | `ai-work`, `dev-loop` | Projects, worktrees and the development loop. |
 | `ai-session` | Sessions and conversations. |
 | `ai-role` | Opening a role's conversation. |
-| `ai-account`, `ai-environment`, `ai-usage` | Accounts: one resolver and one usage record. The sign-in helper (`ol-login`) is not in this copy. |
+| `ai-account`, `ai-usage` | Accounts: one resolver and one usage record. See the section AC of `docs/spec/SDD.md`. The sign-in helper (`ol-login`) is not in this copy. |
 | `ai-usage` | How much each account has left. |
-| `api-rig` | A project's team on the OpenRouter key alone, running the lifecycle unattended under spend caps ([api-rig.md](api-rig.md)). |
 | `ai-jev` | Optional bounded Jev classifier adapter for closed routing, ranking, verification and escalation schemas. |
 | `dev-workspace` | Starting rigs, and adding or removing worker seats. |
 | `rig` | OpenRig itself: rigs, pods and seats. |
@@ -52,11 +51,11 @@ On disk:
 ```
 ~/dev/<project>/  ~/dev/<group>/<project>/  a project's checkout
   .claude/worktrees/<name>/               every worktree of the project, from any tool; no other place
+  .claude/worktrees/rig-<type>-<slug>/    a goal's branch
+  .claude/worktrees/slot-<n>/             a loop slot, detached at the goal branch; one task at a time; a worker seat works here
 ~/dev/teams/<team>/                       a team's control folder: rig.yaml or RIG.md, guidance, prompts; its own Git history; notes/ untracked
-  .claude/worktrees/rig-<type>-<slug>/     a goal's rig branch
-  .claude/worktrees/loop-<N>-<slug>/      one issue's branch; its worker seat works here
 ~/.claude  ~/.codex                       the two default homes
-~/.config/dev-platform/                   repos.conf, personal.conf, account-selection.json
+~/.config/dev-platform/                   repos.conf, account-selection.json
 /var/lib/dev-server/accounts/               the account register (registry.json) and one file for each sign-in
 ~/.claude-accounts/<account>/             an isolated Claude home for a second account
 /opt/dev-platform/
@@ -98,7 +97,7 @@ A skill is a folder with a `SKILL.md`. An agent sees a skill only if it sits in 
 
 | Where skills come from | What |
 | --- | --- |
-| The platform release, `skills/` | `bounded-decisions`, `development-workspace`, `distill`, `intake`, `loop`, `new-repo`, `/develop`, `spec-lint` |
+| The platform release, `skills/` | `/develop`, `development-workspace`, `distill`, `intake`, `engineer`, `loop`, `ops`, `new-repo`, `setup-rig`, `spec-lint` |
 | pstack (`vendor/pstack`, ported by `bin/pstack-port`) | `/dev-plat`, its routed skills and the 23 `principle-*` skills; see `docs/pstack-platform.md` |
 | Engineer's own resources | `engineering`, loaded only into Engineer's Pi sessions |
 | OpenRig | `openrig-skills`, vendored into the default Claude home and the shared folder |
@@ -106,14 +105,12 @@ A skill is a folder with a `SKILL.md`. An agent sees a skill only if it sits in 
 
 | Runs as | Platform skills it sees |
 | --- | --- |
-| `anthropic-bravo` (`~/.claude`) | All of them |
-| `openai` (`~/.codex`) | All of them |
-| `anthropic` (isolated) | None. Only Claude desktop's synced skills. |
-| `openai-bravo` (isolated) | None |
+| A default home (`~/.claude`, `~/.codex`) | All of them |
+| An isolated home (`~/.claude-accounts/<account>`) | None. Only Claude desktop's synced skills. |
 | An OpenRig seat | Whatever its account's home has, plus any `skill_install` in its agent. The platform's agents install none. |
-| Assistant, Ops, Engineer (Pi) | Skill discovery is off. `/develop` arrives as instructions; Engineer also gets `engineering`, `new-repo`, `intake` and `distill`. |
+| Assistant, Ops, Engineer (Pi) | Skill discovery is off. `/develop` arrives as instructions; Engineer also gets the skills that `agents/skills.json` lists for it. |
 
-An isolated account's seats and sessions do not have `loop`, `development-workspace` or the others as skills, though session entry still reaches them through the default home's copy. Each platform skill is linked to `~/.local/share/dev-platform/current/skills/<name>` so it follows activation; `ai-env doctor` reports a link into any other release as `stale`.
+An isolated account's seats and sessions do not have `loop`, `development-workspace` or the others as skills, though session entry still reaches them through the default home's copy. Each platform skill is linked to `/opt/dev-platform/current/skills/<name>` so it follows activation; `ai-env doctor` reports a link into any other release as `stale`.
 
 ## What OpenRig writes into your project folder, and why
 
@@ -188,7 +185,7 @@ Claude and Codex sessions use their own built-in web search, not Perplexity. The
 - **Open a team from the menu once before using `rig tui` to open agents.** Until the menu builds the space for a rig, OpenRig makes a new one for each open.
 - **Ending an agent from inside its tile leaves a bare shell in its seat.** Leave with Ctrl+b then q instead.
 - **Claude usage is a snapshot.** Only a running session reports it, so expect an age on every Claude number.
-- **The dashboard shows Codex seats as "needs attention".** OpenRig checks the foreground process, and `codex` here is a Node wrapper. Claude seats verify correctly. Reported upstream.
+- **The dashboard shows Codex seats as "needs attention".** OpenRig checks the foreground process, and `codex` here is a Node wrapper. Claude seats verify correctly.
 - **A stopped rig cannot be restored with `rig up --existing`.** Stock OpenRig behavior. Start a fresh rig instead.
 - **A seat's usage comes from OpenRig's own status line.** `ai-usage` folds it into the record under the account the seat was launched on (`usage/seats/SEAT`).
 
@@ -200,4 +197,4 @@ Claude and Codex sessions use their own built-in web search, not Perplexity. The
 | A new seat sits on "Connection refused, retrying" | Inherited stale proxy URL | `ai-env doctor` shows it; `dev-workspace start` removes it; or `tmux set-environment -g -u ANTHROPIC_BASE_URL` |
 | A seat times out after 30 seconds, never interactive | Claude's first-run Chrome dialog in a fresh home | `bootstrap.sh` records the answer in each agent's `~/.claude.json`; rerun it |
 | `ai-account status` says every account is unverified | Run from inside a Claude desktop session, which sets a provider variable | Run it from a plain terminal |
-| A Codex seat shows "needs attention" but works | The foreground-process check, see Known limits | Ignore, or report upstream |
+| A Codex seat shows "needs attention" but works | The foreground-process check, see Known limits | Ignore it |

@@ -22,8 +22,7 @@ class NewRepo(unittest.TestCase):
         self.env = {'PATH': '/usr/bin:/bin', 'HOME': str(home), 'GIT_CONFIG_GLOBAL': str(home / '.gitconfig'),
                     'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@example.com',
                     'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@example.com',
-                    'DEV_PLATFORM_REPOS': str(self.config / 'repos.conf'),
-                    'DEV_PLATFORM_PERSONAL': str(self.config / 'personal.conf')}
+                    'DEV_PLATFORM_REPOS': str(self.config / 'repos.conf')}
 
     def new_repo(self, *args):
         return subprocess.run([str(self.tmp / 'bin/new-repo'), str(self.tmp / 'game'), '--owner', 'someone', *args],
@@ -49,7 +48,6 @@ class NewRepo(unittest.TestCase):
         self.assertTrue((game / 'docs/tasks/README.md').is_file())
         self.assertEqual((self.config / 'repos.conf').read_text(),
                          f'someone/game {game} local main tier=2 tracker=files tasks=json\n')
-        self.assertFalse((self.config / 'personal.conf').exists())
         self.assertIn('Source control tier: 2 (see repos.conf)', (game / 'AGENTS.md').read_text())
         self.assertNotIn('develop', (game / 'CONTRIBUTING.md').read_text())
         self.assertNotIn('develop', (game / '.github/workflows/checks.yml').read_text())

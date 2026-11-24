@@ -27,16 +27,14 @@ sits in: the control, worker and review seats refuse this skill.
 3. **Offer the shapes.** `rig-shape list` prints each with its summary. Ask which fits the goal;
    `build` is the default. Prefer AskUserQuestion over free text.
    - `build`: control, a Codex overseer, and worker seats. The standard team.
-   - `review`: control, two overseers on different providers, and worker seats. For risky goals,
-     and the API rig's shape (`--all pi`).
+   - `review`: control, two overseers on different providers, and worker seats. For risky goals.
    - `solo`: control and worker seats, no overseer. For small goals where the check is the review.
 4. **Offer seat runtimes.** Each seat runs `claude-code`, `codex` or `pi`. Keep the shape's defaults
    unless the owner wants a change; the overseer on a different provider from the workers is the
-   point of review. `--all pi` is the API rig (`docs/api-rig.md`): every seat on Pi with the
+   point of review. `--all pi` puts every seat on Pi with the
    OpenRouter key, its model the model file's `rig control`, `rig overseer` or `rig second
    overseer` line resolved for openrouter; the `review` shape's two overseers must resolve to two
-   makers, and the write refuses otherwise. A project runs on the API rig through `api-rig
-   switch <project> --to api`, not by writing the shape alone.
+   makers, and the write refuses otherwise.
 5. **Write it.** `rig-shape write <project> <shape> [--runtime <seat>=<runtime> ...]`. It checks the
    spec with OpenRig's own validator when `rig` is installed, refuses an invalid one, and commits
    it to the team folder's history. Report its line as it printed it.

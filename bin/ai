@@ -2,13 +2,15 @@
 """ai: one menu over the whole AI environment.
 
 Arrow keys move, typing filters, Enter opens, Esc or Left goes back, Ctrl+C quits.
-Pick a project, a session, a role or a team. The menu hands the
-terminal to the command that already does that job (ai-environment, ai-session, ai-role,
-dev-workspace, rig, tmux, herdr) and comes back when it exits. It keeps no state of its
-own. `ai <text>` jumps straight to the project whose name matches. AI_MENU_DRY_RUN=1
-prints each launch instead of running it.
+Write, tasks, the inbox, chat and search come first where the machine layer is installed;
+then a project, a session, a role, a team, the machine and the setup. The menu hands the
+terminal to the command that already does that job (ai-account, ai-session, agent,
+dev-workspace, rig, tmux, herdr, and the machine's note, task, tasks, say, recall, dash,
+brief, ol-hold) and comes back when it exits. An entry whose command is not on the command
+path is not shown. It keeps no state of its own. `ai <text>` jumps straight to the project
+whose name matches. AI_MENU_DRY_RUN=1 prints each launch instead of running it.
 """
-from datetime import datetime, timezone
+from datetime import datetime
 import json
 import math
 import os
@@ -27,14 +29,13 @@ import tty
 ROOT = Path(__file__).resolve().parent.parent
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(ROOT / "lib"))
-from ai_ecosystem import accounts, conversations, paths, rigshape, usage, workspace  # noqa: E402
+from ai_ecosystem import accounts, paths, rigshape, usage, workspace  # noqa: E402
 from ai_ecosystem.store import Store  # noqa: E402
 
 HOME = Path.home()
 REPOS = Path(os.environ.get("DEV_PLATFORM_REPOS", HOME / ".config/dev-platform/repos.conf"))
 DEV_ROOT = os.environ.get("AI_MENU_DEV_ROOT", str(HOME / "dev"))
 REGISTRY = HOME / ".config/dev-platform/accounts.json"
-PI_PROFILES = HOME / ".local/share/dev-platform/accounts/pi"
 TEAMS = paths.teams()
 DRY = os.environ.get("AI_MENU_DRY_RUN") == "1"
 PROVIDER = {"claude": "anthropic", "codex": "openai"}
@@ -338,8 +339,8 @@ def project_menu(project):
     while True:
         items = [("Claude here", lambda: open_client(project, "claude")),
                  ("Codex here", lambda: open_client(project, "codex"))]
-        if project["source"] == "repos.conf":
-            items.append(("Engineer on this project", lambda: role_menu("engineer", project)))
+        if project["source"] == "repos.conf" and role_launcher():
+            items.append(("Engineer on this project", lambda: start_role("engineer", project)))
         items += [("Resume a session here", lambda: sessions_menu(project)),
                   ("This project's team", lambda: project_team(project))]
         if project["loop_enabled"]:
@@ -398,15 +399,15 @@ def open_client(project, client, prompt=None):
     """Open a client in the project; with prompt, it starts the conversation with that request."""
     account = pick_account(client)
     if account:
-        run(tool("ai-environment") + ["run", "--client", client, "--provider", PROVIDER[client],
-                                      "--preferred-account", account, "--allow-unknown-quota",
-                                      "--cwd", project["root"]] + ([prompt] if prompt else []))
+        run(tool("ai-account") + ["run", "--client", client, "--account", account,
+                                  "--cwd", project["root"]] + (["--", prompt] if prompt else []))
 
 
-SPEC_PROMPT = ("Use the intake skill to spec out this project. The goal: {goal}. Write the decision for me to "
-               "accept, then the requirements in docs/spec and the task files with dev-loop tasks, on a docs/ branch. "
+SPEC_PROMPT = ("Use the intake skill to spec out this project. The goal: {goal}. Ask me each open question and show "
+               "me the exact requirement sentences. Write them in docs/spec only after I accept them, then write the "
+               "task files with dev-loop tasks, as the intake skill says for this repository. "
                "Cut the work into ready tasks whose Scope paths do not overlap, so several workers can build them at "
-               "once, and mark each one ready. Stop when the spec branch is ready for me to merge.")
+               "once, and mark each one ready. Stop when the specification and the tasks are ready for me.")
 
 
 def spec_session(project, goal=None):
@@ -467,128 +468,39 @@ def accounts_menu():
 
 # Sessions and roles ---------------------------------------------------------------------
 
-def sessions_menu(project):
+def sessions_menu(project, pi=False):
+    """Your Claude and Codex sessions; with pi, the roles' earlier conversations in Pi."""
     projects = catalog()
     names = {p["id"]: name(p) for p in projects}
     rows = workspace.session_rows(projects, Store().root, project["id"] if project else None, 200)["sessions"]
     items = []
     for row in rows:
-        if row["runtime"] not in ("claude", "codex") or row["owner"] != "user":
+        if (row["runtime"] != "pi" or row["owner"] == "user") if pi else \
+                (row["runtime"] not in ("claude", "codex") or row["owner"] != "user"):
             continue
         where = Path(row["cwd"] or "?").name
         owner = names.get(row["project"], "")
-        parts = [f"[{row['runtime']}]", *([owner] if owner and owner != where else []), where,
+        parts = [f"[{row['owner'] if pi else row['runtime']}]", *([owner] if owner and owner != where else []), where,
                  *([row["title"]] if row["title"] else []), ago(row["updated_at"])]
         items.append((" · ".join(parts), row))
-    pick = choose("Resume a session" + (f" in {name(project)}" if project else ""), items,
+    title = "Role conversations in Pi" if pi else "Resume a session"
+    pick = choose(title + (f" in {name(project)}" if project else ""), items,
                   "Newest first. The list is as fresh as its last refresh, under Accounts and setup.")
     if pick:
         run(tool("ai-session") + ["resume", pick["id"], "--execute"])
 
 
-def last_used(store, conversation):
-    folder = conversations.path_for(store, conversation["id"]) / "native/pi"
-    stamps = [p.stat().st_mtime for p in folder.glob("*.jsonl")] if folder.is_dir() else []
-    return max(stamps, default=0), bool(stamps)
+def role_launcher():
+    """The launcher of the server (`agent`), or None on a machine that does not have it. No
+    command of this repository starts a role: ai-role needs the Pi login folder that this
+    launcher hands in, so with no launcher the role entries are not in the menu."""
+    return shutil.which("agent")
 
 
-def role_menu(agent, project=None):
-    store = Store()
-    mine = [c for c in conversations.list_conversations(store) if c["agent"] == agent
-            and (project is None or c["scope"].get("project_id") == project["id"])]
-    mine.sort(key=lambda c: last_used(store, c)[0] or c.get("created_at", 0), reverse=True)
-    items = [(f"Continue: {c['title']} · {ago(last_used(store, c)[0] or c.get('created_at'))}", c) for c in mine]
-    items.append(("Start a new conversation", "new"))
-    title = {"assistant": "Assistant, personal", "ops": "Ops, this machine"}.get(agent, f"Engineer on {name(project) if project else ''}")
-    pick = choose(title, items)
-    if pick == "new":
-        pick = new_conversation(agent, project)
-    if pick:
-        launch_role(store, pick)
-
-
-def session_title(text, agent, project=None):
-    """The stored title in the one session format (docs/session-naming.md). who is the role
-    persona; the account and model are not chosen yet, so those fields stay unknown. Keep the
-    typed text if ai-title cannot run."""
-    argv = tool("ai-title") + ["format", "--client", "pi", "--who", agent, "--type", "interactive", "--purpose", "chat"]
-    if project:
-        argv += ["--project", name(project), "--cwd", project["root"]]
-    argv += ["--", text]
-    try:
-        done = subprocess.run(argv, capture_output=True, text=True, timeout=15)
-    except (OSError, subprocess.SubprocessError):
-        return text
-    return done.stdout.strip() if done.returncode == 0 and done.stdout.strip() else text
-
-
-def new_conversation(agent, project):
-    default = name(project) if project else datetime.now().strftime("%B %-d")
-    title = session_title(ask(f"Name it, or Enter for '{default}': ") or default, agent, project)
-    argv = tool("ai-session") + ["conversation", "create", "--agent", agent, "--title", title]
-    if agent == "engineer":
-        argv += ["--project", project["id"], "--workspace", project["root"]]
-    elif agent == "ops":
-        argv += ["--resource", "this-mac"]
-    if DRY:
-        run(argv)
-        return None
-    created = read_json(argv)
-    if not created or "id" not in created:
-        note("The conversation could not be created; run the same step from ai-session to see why.")
-    return created
-
-
-def launch_role(store, conversation):
-    argv = tool("ai-role") + ["launch", conversation["id"]]
-    profiles = sorted(d.name for d in PI_PROFILES.iterdir() if d.is_dir()) if PI_PROFILES.is_dir() else []
-    if len(profiles) > 1:
-        chosen = choose("Which Pi account?", [(p, p) for p in profiles])
-        if not chosen:
-            return
-        argv += ["--account", chosen]
-    elif profiles:
-        chosen = profiles[0]
-        argv += ["--account", chosen]
-    else:
-        chosen = None
-    resume, others = resume_for(store, conversation, chosen)
-    if resume:
-        argv += ["--resume", resume]
-    elif others:
-        note(f"Starting a fresh session on {chosen}; this conversation's earlier sessions were on "
-             f"{', '.join(others)} and resume only on that account.")
-    run(argv)
-
-
-def session_account(path):
-    """The account a native Pi session was started on, from its first binding entry."""
-    try:
-        with path.open() as lines:
-            for line in lines:
-                entry = json.loads(line)
-                if entry.get("type") == "custom" and entry.get("customType") == "dev-platform-binding":
-                    return (entry.get("data") or {}).get("accountRef")
-    except (OSError, ValueError, AttributeError):
-        pass
-    return None
-
-
-def resume_for(store, conversation, account):
-    """Resume the newest session bound to this account; Pi refuses to resume one bound to another.
-    Returns the --resume value or None, and the other accounts' names when starting fresh."""
-    folder = conversations.path_for(store, conversation["id"]) / "native/pi"
-    files = sorted((p for p in folder.glob("*.jsonl") if p.is_file() and not p.is_symlink()),
-                   key=lambda p: p.stat().st_mtime, reverse=True) if folder.is_dir() else []
-    wanted = f"{account}:pi" if account else None
-    others = []
-    for index, path in enumerate(files):
-        bound = session_account(path)
-        if wanted and bound == wanted:
-            return ("latest" if index == 0 else str(path.resolve())), []
-        if bound and bound.removesuffix(":pi") not in others:
-            others.append(bound.removesuffix(":pi"))
-    return None, others
+def start_role(agent, project=None):
+    """Start a role as its own user. The launcher asks for the harness and the account, with
+    the billing of each; in Pi it selects the conversation and calls ai-role."""
+    run(["agent", agent] + ([project["root"]] if project else []))
 
 
 # Teams ----------------------------------------------------------------------------------
@@ -1013,7 +925,7 @@ def worker_menu(project, state, worker, team):
         items += [("Open its seat", "open"), ("Release its seat", "release")]
     else:
         items += [(f"Give it a seat in {team}", "seat"), ("Resume it in the background", "resume")]
-    items.append((f"Merge it up into {state['rig']}", "fold"))
+    items += [(f"Merge it up into {state['rig']}", "fold"), ("Drop it and its work", "drop")]
     while (pick := choose(f"#{i} {branch} · {worker['state']}", items,
                           "Merging up checks the branch and releases its seat.")) is not None:
         if pick == "diff":
@@ -1042,6 +954,10 @@ def worker_menu(project, state, worker, team):
         elif pick == "fold":
             run(dev_loop(project, "fold", i), pause=True)
             return
+        elif pick == "drop":
+            if confirm(f"Drop #{i} and its work?"):
+                run(dev_loop(project, "drop", i), pause=True)
+                return
 
 
 def tasks_menu(project):
@@ -1058,6 +974,302 @@ def tasks_menu(project):
             run(dev_loop(project, "tasks", pick), cwd=project["root"], pause=True)
 
 
+# Machine layer --------------------------------------------------------------------------
+# The server's own commands (host/bin): the journal, its tasks, the inbox, the one chat,
+# search and the machine's switches. Each entry is shown only where its command is on the
+# command path, so a machine without that layer shows none of them.
+
+JOURNAL = Path(os.environ.get("OL_JOURNAL", HOME / "journal"))
+INBOX = Path(os.environ.get("OL_INBOX", HOME / "inbox"))
+CHAT = os.environ.get("OL_CHAT", "/var/lib/dev-server/chat")
+HOLD = Path("/var/lib/dev-server/hold")
+
+
+def machine(command):
+    """The path of a machine command, or None on a machine that does not have it."""
+    return shutil.which(command)
+
+
+def page_through(argv, cwd=None):
+    """Long output reads like a page in less; short output just shows."""
+    return run(["sh", "-c", '"$@" 2>&1 | less -RFX', "sh", *map(str, argv)], cwd=cwd)
+
+
+def pages():
+    return sorted((JOURNAL / "log").glob("*/*/*.txt"), reverse=True)
+
+
+def page_day(page):
+    return "-".join(page.relative_to(JOURNAL / "log").with_suffix("").parts)
+
+
+def write_menu():
+    """The journal is plain text, one page a day; `note` opens a page or adds a line to today's."""
+    def line():
+        if text := ask("A line for today's page: "):
+            run(["note", text])
+
+    def search():
+        if words := ask("Search the journal for: "):
+            page_through(["rg", "-i", "--color=always", "--", words, JOURNAL])
+
+    def earlier():
+        page = choose("Earlier pages", [(page_day(p), p) for p in pages()], "Newest first.")
+        if page:
+            run(["note", page_day(page)])
+    items = [("Today's page", lambda: run(["note"])), ("Yesterday's page", lambda: run(["note", "yesterday"])),
+             ("A line on today's page", line), ("Earlier pages", earlier), ("Search the journal", search)]
+    while (pick := choose("Write", items, "In a page: ,j today · [d ]d the page before and after · ,t a line with the time")) is not None:
+        pick()
+
+
+def journal_tasks():
+    return read_json(["tasks", "--json"]) or []
+
+
+def tasks_summary():
+    """One line from `tasks`: open, due today, overdue."""
+    return subprocess.run(["tasks", "--summary"], capture_output=True, text=True).stdout.strip()
+
+
+def task_label(task):
+    today = time.strftime("%Y-%m-%d")
+    bits = ([("overdue " if task["due"] < today else "due ") + task["due"]] if task.get("due") else []) + \
+        ([task["priority"]] if task.get("priority") else []) + ["#" + tag for tag in task.get("tags", [])]
+    return task["text"][:70] + (f"  · {', '.join(bits)}" if bits else "")
+
+
+def add_task(text=None, extra=()):
+    """`task` writes one file in the journal's open tasks; the code it returns is the hand-off's."""
+    text = text or ask("What needs doing: ")
+    if not text:
+        return None
+    argv = ["task", text, *extra]
+    if not extra:
+        due = ask("Due (a date, 'friday', or Enter for none): ")
+        priority = choose("Priority", [(p, p) for p in ("none", "highest", "high", "medium", "low")]) or "none"
+        tags = ask("Tags, separated by spaces (Enter for none): ")
+        argv += (["--due", due] if due else []) + (["--priority", priority] if priority != "none" else [])
+        argv += [a for tag in tags.split() for a in ("--tag", tag)]
+    return run(argv, pause=True)
+
+
+def journal_tasks_menu():
+    while True:
+        summary = tasks_summary()
+        items = [(task_label(t), t) for t in journal_tasks()]
+        items += [("Add a task", "add"), ("Overdue", ["tasks", "--overdue"]),
+                  ("Due by the end of the week", ["tasks", "--due-by", "sunday", "--sort", "due"]),
+                  ("Finished", ["tasks", "--done"]), ("The old vault's open tasks", ["tasks", "--archive"])]
+        pick = choose(summary.capitalize() or "Tasks", items, "Pick a task to finish or edit it.")
+        if pick is None:
+            return
+        if pick == "add":
+            add_task()
+        elif isinstance(pick, list):
+            page_through(pick)
+        else:
+            one_task_menu(pick)
+
+
+def one_task_menu(task):
+    page = JOURNAL / "tasks/open" / task["file"]
+    pick = choose(task_label(task), [("Done", "done"), ("Edit it", "edit"), ("Show it", "show")])
+    if pick == "done":
+        run(["tasks", "done", str(task["n"])], pause=True)
+    elif pick == "edit":
+        run([os.environ.get("EDITOR", "nvim"), page])
+    elif pick == "show":
+        run(["cat", page], pause=True)
+
+
+def inbox_items():
+    if not INBOX.is_dir():
+        return []
+    return sorted((f for f in INBOX.iterdir() if f.is_file() and not f.name.startswith(".")),
+                  key=lambda f: f.stat().st_mtime, reverse=True)
+
+
+def proposal(item):
+    """'task', 'journal-line' or 'work' for a role's proposal (<date>-<time>-<role>-<kind>-<id>.txt), else None."""
+    return next((kind for kind in ("journal-line", "task", "work") if f"-{kind}-" in item.name and item.suffix == ".txt"), None)
+
+
+def file_away(item):
+    """Out of the inbox into ~/archive/inbox: nothing is deleted."""
+    shelf = INBOX.parent / "archive/inbox"
+    shelf.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(item), str(shelf / item.name))
+
+
+def take_task(item):
+    lines = item.read_text(errors="replace").splitlines() or [""]
+    extra = []
+    for line in lines[1:]:
+        key, sep, value = line.partition(":")
+        key, value = key.strip().lower(), value.strip()
+        if sep and value and key in ("due", "scheduled", "priority"):
+            extra += [f"--{key}", value]
+        elif sep and value and key == "tags":
+            extra += [a for tag in value.split() for a in ("--tag", tag.lstrip("#"))]
+    if add_task(lines[0].strip(), extra or ["--tag", "proposed"]) == 0:
+        file_away(item)
+
+
+def take_line(item):
+    line = item.read_text(errors="replace").strip()
+    if line and run(["note", line]) == 0:
+        file_away(item)
+
+
+def inbox_menu():
+    while True:
+        items = [(f"{f.name[:60]} · {proposal(f) or 'file'} · {ago(f.stat().st_mtime)}", f) for f in inbox_items()]
+        item = choose(f"Inbox · {len(items)} waiting", items,
+                      "A proposal from a role is taken in one step; filing away keeps a copy in ~/archive/inbox.")
+        if item is None:
+            return
+        kind, text = proposal(item), item.suffix.lower() in (".txt", ".md", ".sh", ".json", ".csv", ".log", "")
+        actions = [("Read it", lambda: page_through(["cat", item]) if text else run(["file", item], pause=True))]
+        if kind == "task":
+            actions.append(("Take it as a task", lambda: take_task(item)))
+        if kind == "journal-line" and machine("note"):
+            actions.append(("Add it to today's page", lambda: take_line(item)))
+        if text:
+            actions.append(("Edit it", lambda: run([os.environ.get("EDITOR", "nvim"), item])))
+        actions.append(("File it away", lambda: file_away(item)))
+        if pick := choose(f"{item.name} · {kind or 'file'}", actions):
+            pick()
+
+
+def chat_menu():
+    def say():
+        if words := ask("Say (@assistant or @ops to have one answer): "):
+            run(["say", words])
+    items = [("Say something", say), ("What was said lately", lambda: page_through(["tail", "-n", "200", CHAT]))]
+    while (pick := choose("Chat · one room for the screen, webchat and the roles", items)) is not None:
+        pick()
+
+
+def search_everything():
+    if words := ask("Search chat, memories, journal, inbox and sessions for: "):
+        page_through(["recall", words])
+
+
+def terminals():
+    """Every tmux session. One with no viewer is a closed window that still runs."""
+    listing = subprocess.run(["tmux", "ls", "-F", "#{session_name}\t#{session_attached}\t#{session_created}\t"
+                              "#{pane_current_command}\t#{pane_current_path}"], capture_output=True, text=True).stdout
+    here = subprocess.run(["tmux", "display", "-p", "#S"], capture_output=True, text=True).stdout.strip() \
+        if os.environ.get("TMUX") else ""
+    rows = []
+    for line in listing.splitlines():
+        session, viewers, created, command, folder = (line.split("\t") + [""] * 5)[:5]
+        rows.append({"name": session, "viewers": int(viewers or 0), "created": int(created or 0),
+                     "command": command, "path": folder.replace(str(HOME), "~"), "here": session == here})
+    return rows
+
+
+def terminals_menu():
+    while True:
+        rows = terminals()
+        items = [(f"{t['name']} · {'this one' if t['here'] else str(t['viewers']) + ' viewing' if t['viewers'] else 'no viewer'}"
+                  f" · {t['command']} in {t['path']} · started {ago(t['created'])}", t) for t in rows]
+        items.append(("Close every terminal with no viewer", "unwatched"))
+        pick = choose(f"Terminals · {len(rows)} open", items,
+                      "A new SSH window opens its own terminal. home, at the console, stays.")
+        if pick is None:
+            return
+        if pick == "unwatched":
+            gone = [t for t in rows if not t["viewers"] and not t["here"] and t["name"] != "home"]
+            if gone and confirm(f"Close {len(gone)} terminal(s) with no viewer, and what runs in them?"):
+                for t in gone:
+                    run(["tmux", "kill-session", "-t", f"{t['name']}:"])
+            continue
+        action = choose(pick["name"], [("Go to it", "go"), ("Close it", "close")])
+        if action == "go":
+            run(["tmux", "switch-client" if os.environ.get("TMUX") else "attach", "-t", f"{pick['name']}:"])
+        elif action == "close" and (not (pick["viewers"] or pick["here"]) or
+                                    confirm(f"{pick['name']} is open on a screen; close it and what runs in it?")):
+            run(["tmux", "kill-session", "-t", f"{pick['name']}:"])
+
+
+def hold_state():
+    """('on'|'held', 'on'|'held') for the rounds and the local model, from the owner's switches."""
+    model = "held" if (HOLD / "local-model").exists() else "on"
+    return ("held" if model == "held" or (HOLD / "stream").exists() else "on"), model
+
+
+def hold_menu():
+    # sudo allows the switch only at the path that bootstrap installs (/etc/sudoers.d/60-hold).
+    switch = ["sudo", "-n", "/usr/local/bin/ol-hold"]
+    while True:
+        stream, model = hold_state()
+        if model == "held":
+            items = [("Local model on (the rounds come back unless they are held on their own)", ["model", "on"])]
+        else:
+            items = [("Rounds off, chat stays on" if stream == "on" else "Rounds on", ["stream", "off" if stream == "on" else "on"]),
+                     ("Local model and rounds off (chat stays on; paid turns still run)", ["model", "off"])]
+        items.append(("Where they stand", "status"))
+        pick = choose(f"Rounds {stream} · local model {model}", items)
+        if pick is None:
+            return
+        run(["ol-hold", "status"] if pick == "status" else switch + pick, pause=True)
+
+
+def failed_units():
+    found = []
+    for scope in ([], ["--user"]):
+        listing = subprocess.run(["systemctl", *scope, "--failed", "--plain", "--no-legend"], capture_output=True, text=True).stdout
+        found += [(line.split()[0], scope) for line in listing.splitlines() if line.strip()]
+    return found
+
+
+def services_menu():
+    while True:
+        items = [(f"failed  {unit}{' (yours)' if scope else ''}", (unit, scope)) for unit, scope in failed_units()]
+        items += [("Timers: what runs when", ["systemctl", "list-timers", "--no-pager"]),
+                  ("Everything running", ["systemctl", "list-units", "--type=service", "--state=running", "--no-pager"])]
+        pick = choose("Services", items, "A failed unit also pages your phone (notify-failure).")
+        if pick is None:
+            return
+        if isinstance(pick, list):
+            page_through(pick)
+            continue
+        unit, scope = pick
+        action = choose(unit, [("Its log", "log"), ("Restart it", "restart")])
+        if action == "log":
+            page_through(["journalctl", *scope, "-u", unit, "-n", "200", "--no-pager"])
+        elif action == "restart" and confirm(f"Restart {unit}?"):
+            run((["systemctl", "--user"] if scope else ["sudo", "systemctl"]) + ["restart", unit], pause=True)
+
+
+SNAPSHOTS = ('for d in journal documents; do echo "$d: $(ls ~/.snapshots/$d | wc -l) kept, newest $(ls ~/.snapshots/$d | tail -n 1)"; done; '
+             'echo; echo "Read-only copies: take a file back with cp ~/.snapshots/journal/<time>/<path> ~/journal/<path>"')
+
+
+def machine_menu():
+    """The machine's parts; each entry only where its command is on the command path."""
+    while True:
+        entries = [("Rounds {} · local model {}".format(*hold_state()), "ol-hold", hold_menu),
+                   ("Arrival brief", "brief", lambda: run(["brief"], pause=True)),
+                   ("Terminals", "tmux", terminals_menu),
+                   ("Screen on", "gui", lambda: run(["gui", "screen"])),
+                   ("Screen off", "gui", lambda: run(["gui", "stop"])),
+                   ("Services", "systemctl", services_menu),
+                   ("Disk and memory", "df", lambda: page_through(
+                       ["sh", "-c", 'df -h / /home; echo; free -h; echo; du -sh "$HOME"/* 2>/dev/null | sort -h | tail -15'])),
+                   ("Network: the tailnet and the home network", "tailscale", lambda: page_through(
+                       ["sh", "-c", 'tailscale status; echo; column -s, -t "$HOME/network/devices.csv" 2>/dev/null | tail -40'])),
+                   ("Snapshots of the journal and documents", "ol-snapshot", lambda: page_through(["sh", "-c", SNAPSHOTS])),
+                   ("Send a test alert to the phone", "notify",
+                    lambda: run(["notify", "test from ai", "If this arrived, alerts work."], pause=True))]
+        pick = choose("This machine", [(label, action) for label, command, action in entries if machine(command)])
+        if pick is None:
+            return
+        pick()
+
+
 # Home -----------------------------------------------------------------------------------
 
 def engineer_menu():
@@ -1065,7 +1277,7 @@ def engineer_menu():
     items = [(f"{name(p)} · {p['repo']}", p) for p in catalog() if p["source"] == "repos.conf" and p["available"]]
     project = choose("Engineer on which project?", items, "Engineer works in projects listed in repos.conf.")
     if project:
-        role_menu("engineer", project)
+        start_role("engineer", project)
 
 
 CURRENT = paths.install()
@@ -1085,11 +1297,20 @@ def home():
     while True:
         upgrade_if_released()
         items = [(f"This project: {name(here)}", lambda: project_menu(here))] if here else []
-        items += [("Start a new project", new_project),
-                  ("Projects", projects_menu), ("Recent sessions", lambda: sessions_menu(None)),
-                  ("Assistant, personal", lambda: role_menu("assistant")), ("Ops, this machine", lambda: role_menu("ops")),
-                  ("Engineer, on a project", engineer_menu),
-                  ("Teams", teams_menu), ("Accounts and setup", accounts_menu)]
+        # The daily things first, then projects and sessions, roles and teams, the machine and the setup.
+        journal = [(label, action) for label, command, action in (
+            ("Write", "note", write_menu), ("Tasks", "tasks", journal_tasks_menu), ("Inbox", "task", inbox_menu),
+            ("Chat", "say", chat_menu), ("Search everything", "recall", search_everything)) if machine(command)]
+        roles = [("Assistant, personal", lambda: start_role("assistant")), ("Ops, this machine", lambda: start_role("ops")),
+                 ("Engineer, on a project", engineer_menu),
+                 ("Role conversations in Pi", lambda: sessions_menu(None, pi=True))] if role_launcher() else []
+        own = [(label, action) for label, command, action in (
+            ("Dashboard", "dash", lambda: run(["dash"])), ("This machine", "ol-hold", machine_menu)) if machine(command)]
+        items += [*journal,
+                  ("Projects", projects_menu), ("Start a new project", new_project),
+                  ("Recent sessions", lambda: sessions_menu(None)),
+                  *roles, ("Teams", teams_menu),
+                  *own, ("Accounts and setup", accounts_menu)]
         bad = accounts.conflicts(os.environ)
         hint = ("This shell carries provider overrides, so launches will refuse: " + ", ".join(bad)
                 if bad else None if keyboard() else "Enter goes back, q quits, text filters a list.")

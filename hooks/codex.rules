@@ -1,4 +1,4 @@
-# Codex execution rules. Installed as ~/.codex/rules/default.rules by runbooks/new-repo.md
+# Codex execution rules. `ai-guardrails install` links this file as ~/.codex/rules/default.rules.
 # (the sandbox default lives in ~/.codex/config.toml: sandbox_mode = "workspace-write").
 # Read-only and build commands are allowed without a prompt; anything that pushes to a protected
 # branch, merges, rewrites history, restarts a service or reaches a host is refused.

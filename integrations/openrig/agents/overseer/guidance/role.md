@@ -30,14 +30,12 @@ reporting the daemon down.
 Never reshape the team you sit in: `/setup-rig` and `rig-shape write` are for the owner, or Engineer on
 the owner's word. A shape change takes effect only when the team next starts.
 
-## On the API rig
+## On Pi
 
-On Pi (the API rig, `docs/api-rig.md`) there is no sandbox: reach the daemon with plain `rig`
+On Pi there is no sandbox: reach the daemon with plain `rig`
 commands, and the platform's guard refuses the same pushes, merges and restarts it refuses
 everywhere. The two overseers run on two model families on purpose; give your own reading.
-`ask_advice` asks the judgment model for a second opinion on a hard call. The supervisor re-opens
-you on a fresh context at a cadence: keep `.run/handoff-<your seat>.md` in the team folder
-current (what you reviewed, your verdicts, what you wait on), and write it when asked.
+`ask_advice` asks the judgment model for a second opinion on a hard call.
 
 Session title: write only `purpose(area): Description #ref` with the harness's naming control.
 The launcher sets `who` to your seat name and `type` to `seat`; the harness hook adds the other

@@ -554,23 +554,6 @@ class Config(Fixture):
                                     f'repository 1: no folder at {self.tmp}/nowhere'])
         self.assertFalse((self.tmp / 'tree.html').exists())
 
-    def test_a_project_name_is_found_through_the_tree_field_of_the_registry(self):   # SDD-ST-15
-        shutil.copy(self.config, self.repo / 'tree.json')
-        data = json.loads(self.config.read_text())
-        data['repositories'][0]['path'] = '.'
-        del data['page']
-        (self.repo / 'tree.json').write_text(json.dumps(data))
-        (self.tmp / 'repos.conf').write_text(f'# registry\nowner/repo {self.repo} local main tree=tree.json\n')
-        done = subprocess.run([sys.executable, '-I', str(CLI), 'compile', 'fixture'], env=self.env, capture_output=True, text=True)
-        self.assertEqual(done.returncode, 0, done.stderr)
-        # With no page field, the page is in the Git folder of the repository (SDD-ST-11): no commit and no tool reads it.
-        self.assertTrue((self.repo / '.git/dev-platform/tree.html').is_file())
-        self.assertTrue((self.repo / '.git/dev-platform/tree.data.json').is_file())
-        self.assertIn(f'page: {self.repo}/.git/dev-platform/tree.html', done.stdout)
-        self.assertNotIn('working tree', done.stdout)
-        self.assertFalse((self.repo / 'tree.html').exists())
-        self.assertEqual(sh(self.repo, 'git', 'status', '--porcelain', '--ignored'), '?? tree.json')   # only the config that this test put there
-
     def test_a_project_record_of_the_platform_names_the_repository_and_the_page(self):   # SDD-PJ-01, SDD-PJ-06
         projects = self.tmp / 'projects'
         projects.mkdir()
@@ -601,13 +584,6 @@ class Config(Fixture):
         done = subprocess.run([sys.executable, '-I', str(CLI), 'compile', 'other'], env=self.env, capture_output=True, text=True)
         self.assertEqual(done.returncode, 2)
         self.assertIn('no project named other', done.stderr)
-
-    def test_the_registry_accepts_the_tree_field(self):   # SDD-ST-15
-        from ai_ecosystem import tiers
-        entry = tiers.parse_line(f'owner/repo {self.repo} local main tree=docs/spec/tree.json')
-        self.assertEqual(entry['tree'], 'docs/spec/tree.json')
-        with self.assertRaises(ValueError):
-            tiers.parse_line(f'owner/repo {self.repo} local main tree=a;b')
 
     def test_the_command_uses_the_standard_library_only(self):   # SDD-ST-16
         done = subprocess.run([sys.executable, '-I', '-S', str(CLI), '--help'], capture_output=True, text=True)

@@ -103,7 +103,7 @@ python3 scripts/version.py
 
 - Working policy: [CONTRIBUTING.md](CONTRIBUTING.md); contributor instructions: [AGENTS.md](AGENTS.md).
 - Versioning: [docs/VERSIONING.md](docs/VERSIONING.md).
-- Accepted decisions: [docs/decisions/](docs/decisions/).
+- Specification: [docs/spec/](docs/spec/).
 MD
 cat > "$directory/tests/checks/test_hygiene.py" <<'PY'
 import importlib.util

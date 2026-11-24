@@ -3,9 +3,13 @@
 # Untracked .worker-* notes are not source. Tracked worker files remain in the fingerprint.
 # The check is the command of the project record (work.check), else bin/check, else package.json
 # scripts.check, else scripts/check (new-repo).
-# Usage: check-once.sh [--status] (--status never executes the check).
+# Usage: check-once.sh [--status|--source|--hash]. Only a call with no option runs the check:
+# --status compares the tree with the pass record; --source prints the check (bin/check, bun run
+# check, scripts/check or the command of the record) and exits 2 when the repository has none (the
+# stop check asks it); --hash prints the hash of the present tree (the batch of a forge writes it
+# as the pass record of the goal worktree when its check passed on the same tree).
 set -euo pipefail
-case "${1:-}" in ''|--status) ;; *) echo 'check-once: expected --status or no arguments' >&2; exit 2 ;; esac
+case "${1:-}" in ''|--status|--source|--hash) ;; *) echo 'check-once: expected --status, --source, --hash or no arguments' >&2; exit 2 ;; esac
 root="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo 'check-once: not inside a repository' >&2; exit 2; }
 cd "$root"
 common="$(git rev-parse --path-format=absolute --git-common-dir)"
@@ -17,19 +21,20 @@ unset DEV_PLATFORM_CHECK
 [ ! -f "$env_file" ] || . "$env_file"
 if [ -n "${DEV_PLATFORM_CHECK:-}" ]; then
   # The project record states the check command (work.check; dev-project sync writes this file).
-  check_cmd=(bash -c "$DEV_PLATFORM_CHECK")
+  check_cmd=(bash -c "$DEV_PLATFORM_CHECK"); check_name="$DEV_PLATFORM_CHECK"
 elif [ -x "$root/bin/check" ]; then
-  check_cmd=("$root/bin/check")
+  check_cmd=("$root/bin/check"); check_name=bin/check
 elif [ -f "$root/package.json" ] && python3 -c 'import json; import sys; sys.exit(not isinstance(json.load(open("package.json")).get("scripts", {}).get("check"), str))'; then
   bun="${BUN_PATH:-$HOME/.bun/bin/bun}"; [ -x "$bun" ] || bun="$(command -v bun || true)"
-  [ -n "$bun" ] || { echo 'check-once: bun not found' >&2; exit 2; }
-  check_cmd=("$bun" run check)
+  [ -n "$bun" ] || [ "${1:-}" = --source ] || { echo 'check-once: bun not found' >&2; exit 2; }
+  check_cmd=("${bun:-bun}" run check); check_name='bun run check'
 elif [ -x "$root/scripts/check" ]; then
-  check_cmd=("$root/scripts/check")
+  check_cmd=("$root/scripts/check"); check_name=scripts/check
 else
   echo 'check-once: no executable bin/check, package.json scripts.check or executable scripts/check; refusing to record a pass' >&2
   exit 2
 fi
+if [ "${1:-}" = --source ]; then printf '%s\n' "$check_name"; exit 0; fi
 mark="$(git rev-parse --path-format=absolute --git-path dev-platform)"
 mkdir -p "$mark"
 tree_hash() {
@@ -81,6 +86,7 @@ print(h.hexdigest())
 PY
 }
 h="$(tree_hash)"
+if [ "${1:-}" = --hash ]; then printf '%s\n' "$h"; exit 0; fi
 if [ -f "$mark/check-pass" ] && [ "$(cat "$mark/check-pass")" = "$h" ]; then
   echo "check-once: check already passed on this tree ($h); log $mark/check.log"
   exit 0

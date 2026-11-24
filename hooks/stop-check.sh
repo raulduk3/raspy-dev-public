@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Claude Code Stop hook: when the session ends inside a repository with an executable bin/check
-# or a package.json with a `check` script, and the tree has changes, run the repository's check
-# through check-once.sh and report the result. A tree that already passed (the agent ran
+# Claude Code Stop hook: when the session ends inside a repository with a check (the one rule of
+# check-once.sh --source) and the tree has changes, run the repository's check through
+# check-once.sh and report the result. A tree that already passed (the agent ran
 # check-once.sh itself, or an earlier stop did) costs nothing. It blocks the stop (exit 2) only
 # when the check fails, so the agent reports the failure instead of stopping over a red tree. It
 # never edits anything.
@@ -38,11 +38,8 @@ if [ -f "$here/../lib/ai_ecosystem/tiers.py" ]; then
   off="$(python3 -I "$here/../lib/ai_ecosystem/tiers.py" --field off "$root" 2>/dev/null || true)"
   case ",$off," in *,check,*) echo 'dev-platform: the full check is off for this project'; exit 0 ;; esac
 fi
-# A repository with no check has nothing to run. The project record can state the check (check-once.sh).
-env_file="${DEV_PLATFORM_ENV_DIR:-$HOME/.config/dev-platform/env.d}/$(basename "$(dirname "${common:-/}")").sh"
-if [ ! -x "$root/bin/check" ] && ! grep -qs '^export DEV_PLATFORM_CHECK=' "$env_file"; then
-  [ -f "$root/package.json" ] && grep -q '"check"' "$root/package.json" || exit 0
-fi
+# A repository with no check has nothing to run. check-once.sh finds the check by its one rule.
+(cd "$root" && bash "$here/check-once.sh" --source >/dev/null 2>&1) || exit 0
 if [ -z "$(cd "$root" && git status --porcelain --untracked-files=no)" ] && [ -z "$(cd "$root" && git log --oneline @{upstream}..HEAD 2>/dev/null)" ]; then
   exit 0
 fi

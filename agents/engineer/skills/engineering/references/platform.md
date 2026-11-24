@@ -15,7 +15,7 @@ Everything below is relative to the activated release, `/opt/dev-platform/curren
 | Which surface holds which work, and what each refuses | `ROLES.md` |
 | Which model class runs which work | `MODELS.md` |
 | OpenRig install, the local fork, the launcher and its boundaries | `integrations/openrig/README.md` |
-| Accounts, launch plans and usage | `docs/host-account-service.md`, `docs/usage.md` |
+| Accounts and usage | `docs/spec/SDD.md`, section AC |
 | Sessions, the index and naming | `docs/session-index.md`, `docs/session-naming.md` |
 | OpenRig's own contracts (RigSpec, AgentSpec, edges) | `rig --help`, and `~/.local/share/dev-platform/openrig-runtime/app/node_modules/@openrig/cli/daemon/docs/reference/` |
 

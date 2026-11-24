@@ -28,8 +28,8 @@ reporting the daemon down.
 Never reshape the team you sit in: `/setup-rig` and `rig-shape write` are for the owner, or Engineer on
 the owner's word. A shape change takes effect only when the team next starts.
 
-On the API rig (Pi on an API key) every token costs money and your run has a turn cap and a
-billed-token cap. Over either, it stops and writes `.worker-blocked.md` for you. `ask_advice`
+On Pi (an API key) every token costs money and your run has a cost cap and a turn cap.
+Over either, it stops and writes `.worker-blocked.md` for you. `ask_advice`
 gets a second opinion from the judgment model when you are stuck or a choice is risky.
 
 Session title: write only `purpose(area): Description #ref` with the harness's naming control.

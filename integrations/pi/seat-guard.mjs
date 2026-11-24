@@ -1,11 +1,11 @@
 /** seat_guard: the platform's guard for a Pi seat or worker.
  *
  *  Claude Code runs hooks/pre-tool-use-guard.sh before every shell command; Pi has no hooks, so
- *  without this an API-rig seat could push to a protected branch, rewrite history, merge into the
+ *  without this a Pi seat could push to a protected branch, rewrite history, merge into the
  *  base or restart a service. Every `bash` tool call is shown to the same script with the same
  *  input shape, and refused when it refuses. If the script cannot run, the command is refused:
  *  a guard that fails open is no guard. Loaded from the seat's own Pi agent folder
- *  (extensions/), which `api-rig` and `dev-workspace add-worker pi` write before the seat starts. */
+ *  (extensions/), which `dev-workspace add-worker pi` and the loop write before the seat starts. */
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 

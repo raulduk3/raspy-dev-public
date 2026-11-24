@@ -18,7 +18,7 @@ class NamingTest(unittest.TestCase):
         self.assertEqual((fields['project'], fields['purpose'], fields['area']), ('dev-platform', 'feat', 'platform'))
         self.assertEqual(naming.problems(title), [])
 
-    def test_retitle_keeps_what_and_is_idempotent(self):
+    def test_a_title_keeps_what_and_is_idempotent(self):
         first = naming.format_title('Plan  October travel', client='chatgpt', who='owner', host='web', project='none', date='2026-10-01')
         again = naming.format_title(first, client='chatgpt', who='owner', host='web', project='none', date='2026-10-01')
         self.assertEqual(first, again)

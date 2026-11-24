@@ -274,11 +274,11 @@ def governance(checkout, ref, body, labels):
     until every cited decision is accepted; a task carrying a governed label (LOOP_GOVERNED_LABELS,
     for example legal, insurance) also needs at least one accepted decision. The owner's
     acceptance is the gate: intake drafts decisions as `Status: proposed` and stops.
-    With LOOP_DECISIONS=frozen (spec-direct mode) a cited decision is history and gates nothing,
-    and a governed label waits on the owner's word, since no new decision can be written."""
+    With LOOP_DECISIONS=none or frozen (no decision record) a cited decision is history and gates
+    nothing, and a governed label waits on the owner's word, since no new decision can be written."""
     governed = {g.strip().lower() for g in os.environ.get('LOOP_GOVERNED_LABELS', '').split(',') if g.strip()}
     hit = sorted(governed & {label.lower() for label in labels})
-    if os.environ.get('LOOP_DECISIONS') == 'frozen':
+    if os.environ.get('LOOP_DECISIONS') in ('none', 'frozen'):
         return f"a {hit[0]} task needs the owner's word" if hit else None
     cited = set()
     for match in CITED.finditer(body):

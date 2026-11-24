@@ -10,14 +10,14 @@ How the software is built to meet each requirement, item by item, with the code 
 | Target version      | The release this document describes.                                                                                                 |
 | Scope               | The design of what [SDD.md](SDD.md) requires, and nothing it does not.                                                               |
 | Authority           | This document decides how the software is built. Where code and this document disagree, one is wrong; say which, with evidence.      |
-| Companion documents | [SDD.md](SDD.md) states what the software must do. [SPEC-AMENDMENTS.md](SPEC-AMENDMENTS.md) records each change to either.           |
-| Change control      | A pull request cites an accepted decision under `docs/decisions/`, edits the exact lines, and appends a row to the amendment ledger. |
+| Companion documents | [SDD.md](SDD.md) states what the software must do.                                                                                   |
+| Change control      | Only the owner's word changes a sentence. A change edits the exact lines. Git records the change. No decision record is written.     |
 
 ## Normative language
 
 - "must" states a requirement.
 - "must not" states a prohibition.
-- No other word makes a requirement. A proposal that is not decided is a decision record with `Status: proposed` under `docs/decisions/` (or a `decision` issue where the repository uses an issue tracker) and does not appear here.
+- No other word makes a requirement. A proposal that is not decided does not appear here. It is a question for the owner, or a task for the person who answers it.
 
 ## Conventions
 
@@ -40,4 +40,4 @@ The request handler calls `requireCredential` before routing. It returns the rej
 
 ### 1.1 First section
 
-No items yet. The first accepted decisions add them here.
+No items yet. The first changes that the owner accepts add them here.

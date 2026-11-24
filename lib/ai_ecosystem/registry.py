@@ -225,10 +225,6 @@ def get(data, account):
     raise Refused(f'no such account: {account} (known: {", ".join(ids(data))})')
 
 
-def provider_of_client(client):
-    return {'claude': 'anthropic', 'codex': 'openai', 'gh': 'github'}.get(client)
-
-
 def first_client(entry):
     """The client an account is shown and checked under: a service key has none but its key."""
     return entry['clients'][0] if entry['clients'] else 'key'

@@ -3,7 +3,6 @@ import importlib.util
 import json
 import subprocess
 import sys
-import unittest
 
 from test_stability import Fixture, PLATFORM
 
@@ -61,6 +60,22 @@ class StopHookTests(Fixture):
         self.assertEqual(self.calls(cwd=worktree), 0)
         # The agent can still run the check directly.
         self.check()
+        self.assertEqual(self.calls(), 1)
+
+    def test_a_repository_whose_only_check_is_scripts_check_is_checked_at_a_stop(self):   # SDD-GD-33
+        check = self.repo / 'scripts/check'
+        check.parent.mkdir()
+        (self.repo / 'bin/check').rename(check)
+        self.commit()
+        (self.repo / 'source').write_text('modified\n')
+        self.assertIn('check passed', self.stop().stdout)
+        self.assertEqual(self.calls(), 1)
+        # A package.json that only names the word check, with no check script, is no check.
+        check.unlink()
+        (self.repo / 'package.json').write_text('{"description": "check"}')
+        self.commit()
+        (self.repo / 'source').write_text('modified again\n')
+        self.assertEqual(self.stop().stdout, '')
         self.assertEqual(self.calls(), 1)
 
     def test_bin_check_failure_blocks_stop(self):

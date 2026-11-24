@@ -40,7 +40,8 @@ export async function createRoleSession(options, suppliedManager) {
   const result = await createAgentSession({
     cwd:resources.cwd, agentDir:options.agentDir,
     modelRuntime, model, sessionManager:manager,
-    sessionStartEvent:options.sessionStartEvent,
+    // Pi calls each first start `startup`; a resumed file starts as a resume (no new title, SE-49).
+    sessionStartEvent:options.sessionStartEvent ?? (resumeFile ? {type:'session_start', reason:'resume'} : undefined),
     resourceLoader:resources.loader, settingsManager:resources.settingsManager,
   });
   return {...result, resources};

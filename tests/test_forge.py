@@ -73,6 +73,19 @@ class PlaceTests(KitFixture):
         self.profile(speed=3)
         self.assertIn('unknown field speed', self.forge('profile', expected=2).stderr)
 
+    def test_a_removed_field_of_the_profile_is_refused_by_its_name(self):
+        for over, name in (({'commands': {'build': 'make'}}, 'commands: the field build'), ({'batch': {'max_wait_s': 600}}, 'batch: the field max_wait_s'),
+                           ({'review_kinds': ['money']}, 'the field review_kinds')):
+            with self.subTest(field=name):
+                self.profile(**over)
+                done = self.forge('profile', expected=2)
+                self.assertEqual(done.stderr, f'dev-forge: forge.json: {name} is removed and nothing reads it; '
+                                              'delete it from the profile\n')
+        self.profile()
+        shown = json.loads(self.forge('profile').stdout)
+        self.assertEqual((set(shown['commands']), set(shown['batch']), 'review_kinds' in shown),
+                         ({'install', 'cheap', 'proof', 'affected', 'full'}, {'max_tasks'}, False))
+
 
 class RigProfileTests(KitFixture):
     """forge.json is the one profile of a rig: it names the project record and states its kind (SDD-PJ-01, SDD-SC-23)."""
@@ -159,6 +172,11 @@ class DetectTests(unittest.TestCase):
         rust, _ = self.detect({'Cargo.toml': ''})
         self.assertEqual((rust['cheap'], rust['full']), ('cargo check', 'cargo test'))
 
+    def test_a_proposal_holds_no_build_command(self):
+        for files in ({'package.json': json.dumps({'scripts': {'build': 'b', 'check': 'c'}})}, {'Cargo.toml': ''}, {'go.mod': ''}):
+            with self.subTest(files=list(files)):
+                self.assertNotIn('build', self.detect(files)[0])
+
     def test_a_check_script_is_the_full_check_and_a_static_project_has_none(self):
         commands, _ = self.detect({'pyproject.toml': '', 'bin/check': '#!/bin/sh\n'})
         self.assertEqual(commands['full'], 'bin/check')
@@ -186,8 +204,9 @@ class GoalFixture(loop_fixture.Fixture):
             (tasks / f'{number}-part.md').write_text(f'# Part {number}\n\nStatus: ready\nScope: {scope}\nDepends on: none\n')
         (tasks / '7-inner.md').write_text('# Inner\n\nStatus: ready\nScope: five/inner\nDepends on: none\n')
         (tasks / '8-wide.md').write_text('# No scope\n\nStatus: ready\nDepends on: none\n')
-        # The full check fails while the file five/broken is in the tree.
-        self.write_check('[ ! -e five/broken ] || { echo "broken is here"; exit 1; }\n')
+        # The full check fails while the file five/broken is in the tree. Each run adds one line to the calls file of its worktree.
+        self.write_check('[ ! -e five/broken ] || { echo "broken is here"; exit 1; }\n'
+                         'echo checked >> "$(git rev-parse --path-format=absolute --git-path calls)"\n')
         self.commit()
         self.rig = self.base / 'rig'
         self.rig.mkdir()
@@ -295,6 +314,19 @@ class BatchTests(GoalFixture):
         self.assertIn('broken is here', failed)
         # The bad task and the task after it keep their slots for the next batch.
         self.assertEqual(loop_fixture.LocalLoopTests.slot_of(self, 6).name[:5], 'slot-')
+
+    def test_the_land_runs_no_second_check_on_the_tree_that_the_batch_checked(self):   # SDD-SC-08, SDD-LP-01
+        self.forge('loop', '--', 'go', 'only', '1', '5')
+        self.work(1, 'source', 'changed\n')
+        self.work(5, 'five/a')
+        self.assertIn('recorded the pass', self.forge('batch', '1', '5').stdout)
+        goal_worktree = Path(json.loads(self.loop('state').stdout)['worktree'])
+        self.loop('close')   # the land closes the goal first: the same check step, with the goal worktree kept
+        self.assertEqual(self.calls(cwd=goal_worktree), 0)
+        self.assertIn('check already passed', (self.ctl() / loop_fixture.RIG.replace('/', '__') / 'pr.md').read_text())
+        self.assertEqual(self.calls(cwd=self.repo / forge.TRIAL), 1)   # the one full check of the goal
+        self.assertIn('landed', loop_fixture.LoopTests.in_owner_terminal(self, 'land', 'test/repo'))
+        self.assertEqual(self.calls(cwd=self.repo), 0)
 
     def test_a_profile_with_no_full_check_folds_nothing(self):
         self.profile(full=None)

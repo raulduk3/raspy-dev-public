@@ -14,7 +14,6 @@
     {"id": "github-globex", "provider": "github", "kind": "oauth", "clients": ["gh"], "default": false, "expected_identity": null, "quota_source": "none", "places": ["/home/owner/dev/globex/"]},
     {"id": "perplexity", "provider": "perplexity", "kind": "api-key", "clients": [], "service": "dev-platform-perplexity", "default": true, "expected_identity": null, "quota_source": "none"},
     {"id": "harvest", "provider": "harvest", "kind": "api-key", "clients": [], "service": "harvest-api", "owner_read": true, "billing": {"key": "none"}, "default": true, "expected_identity": null, "quota_source": "none", "key_parts": ["account_id", "token"], "key_check": {"url": "https://api.harvestapp.com/v2/users/me", "auth": "bearer", "bearer_part": "token", "headers": {"Harvest-Account-Id": "account_id", "User-Agent": "=dev-server ol-login"}, "reports": "email"}},
-    {"id": "nextcloud-rig", "provider": "nextcloud", "kind": "api-key", "clients": [], "service": "nextcloud-rig", "billing": {"key": "none"}, "default": true, "expected_identity": null, "quota_source": "none", "key_parts": ["user", "app_password"]},
     {"id": "jev", "provider": "jev", "kind": "api-key", "clients": [], "service": "dev-platform-jev", "owner_read": true, "default": true, "expected_identity": null, "quota_source": "none"}
   ]
 }

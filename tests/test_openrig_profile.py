@@ -1,6 +1,6 @@
-"""Per-seat OpenRig account binding: host_plan's openrig branch, and the
-dev-workspace --account launcher path. Offline: no daemon, no docker, no
-native login, no real rig binary.
+"""Per-seat OpenRig account binding: the dev-workspace --account launcher path,
+which asks the one resolver and checks the folder's configuration files.
+Offline: no daemon, no native login, no real rig binary.
 """
 import json
 import os
@@ -8,50 +8,22 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
-from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'lib'))
 from ai_ecosystem.paths import node_platform  # noqa: E402
-from ai_ecosystem.environment_service import host_plan  # noqa: E402
 NODE_PLATFORM = node_platform()
-sys.path.insert(0, str(ROOT / 'tests'))
-from test_registry import Fake  # noqa: E402
 
 LAUNCHER = ROOT / 'bin/dev-workspace'
 
 
-class OpenRigPlan(Fake):
-    """An OpenRig plan is the resolver's choice plus a member fragment; the seat gets its
-    credential from the launcher, so no config_home is ever emitted."""
-
-    def test_signed_in_account_emits_member_without_config_home(self):
-        self.signed('anthropic-bravo', 'claude')
-        plan = host_plan([], None, 'openrig', 'anthropic', self.tmp)
-        self.assertTrue(plan['launch_allowed'])
-        self.assertEqual(plan['selected'], 'anthropic-bravo')
-        self.assertEqual(plan['member'], {'runtime': 'claude-code', 'cwd': str(self.tmp)})
-        self.assertNotIn('config_home', plan)
-
-    def test_openai_maps_codex_runtime(self):
-        self.signed('openai-alpha', 'codex')
-        plan = host_plan([], None, 'openrig', 'openai', self.tmp, 'openai-alpha')
-        self.assertEqual(plan['member']['runtime'], 'codex')
-
-    def test_unverified_or_exhausted_account_refuses(self):
-        self.signed('anthropic-bravo', 'claude', verified=False)
-        self.assertFalse(host_plan([], None, 'openrig', 'anthropic', self.tmp)['launch_allowed'])
-        self.signed('anthropic-bravo', 'claude')
-        self.used('anthropic-bravo', 100)
-        self.assertFalse(host_plan([], None, 'openrig', 'anthropic', self.tmp, 'anthropic-bravo')['launch_allowed'])
-
-
 class WorkspaceAccountLauncher(unittest.TestCase):
-    """Hermetic dev-workspace --account tests using a harmless CLI fixture for
-    both `rig` and the account service, following tests/test_openrig_launcher.py's
-    subprocess-with-fixture pattern. The real rig binary and real ai-environment
-    probing are never invoked.
+    """Hermetic dev-workspace --account tests using a harmless CLI fixture for `rig`,
+    following tests/test_openrig_launcher.py's subprocess-with-fixture pattern, and a
+    fake account state (sign-in records and usage readings) for the one resolver.
+    The real rig binary, the machine's registry and its credential store are never used.
     """
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -74,16 +46,23 @@ elif a == ['ps', '--json', '--include-archived']: print(os.environ.get('RIGS', '
 elif a[0] == 'up' and '--plan' in a: pass
 ''')
         rig.chmod(0o755)
-        self.service = self.root / 'ai-environment-fixture'
-        self.service.write_text('''#!/usr/bin/env python3
-import json, os, sys
-print(os.environ.get('ACCOUNT_PLAN', json.dumps({'launch_allowed': False, 'reason': 'fixture default refusal'})))
-''')
-        self.service.chmod(0o755)
+        self.accounts = self.root / 'accounts'
+        self.accounts.mkdir()
+        (self.root / 'usage').mkdir()
         self.env = dict(os.environ, DEV_WORKSPACE_RUNTIME=str(self.root), CALLS=str(self.log),
-                        DEV_WORKSPACE_ACCOUNT_SERVICE=str(self.service),
-                        DEV_WORKSPACE_STATE_DIR=str(self.root / 'state'),
-                        DEV_PLATFORM_PERSONAL=str(self.root / 'personal.conf'))
+                        OL_ACCOUNTS_STATE=str(self.accounts), OL_USAGE_DIR=str(self.root / 'usage'),
+                        OL_CHAT=str(self.root / 'chat'),
+                        DEV_PLATFORM_ACCOUNTS_TEMPLATE=str(ROOT / 'tests/support/accounts.json'),
+                        DEV_WORKSPACE_STATE_DIR=str(self.root / 'state'))
+
+    def signed(self, account, client, verified=True):
+        (self.accounts / f'{account}.{client}.json').write_text(
+            json.dumps({'identity': 'owner@example.invalid', 'verified': verified, 'checked_at': int(time.time())}))
+
+    def used(self, account, percent):
+        (self.root / 'usage' / f'{account}.json').write_text(json.dumps(
+            {'account': account, 'captured': int(time.time()),
+             'five_hour': {'used_percentage': percent, 'resets_at': int(time.time()) + 3600}}))
 
     def call(self, *args):
         return subprocess.run([str(LAUNCHER), *args], env=self.env, text=True, capture_output=True)
@@ -92,14 +71,40 @@ print(os.environ.get('ACCOUNT_PLAN', json.dumps({'launch_allowed': False, 'reaso
         return [json.loads(line) for line in self.log.read_text().splitlines()] if self.log.exists() else []
 
     def test_account_path_refuses_on_disallowed_plan_before_touching_rig_inventory(self):
-        self.env['ACCOUNT_PLAN'] = json.dumps({'launch_allowed': False, 'reason': 'no eligible environment'})
+        # Not signed in: the resolver refuses the named account and substitutes no other.
+        self.signed('openai-bravo', 'codex')
         result = self.call('start', 'codex', '--cwd', str(self.root), '--account', 'openai-alpha')
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn('no eligible environment', result.stderr)
+        self.assertIn('account plan refused: openai-alpha is not signed in', result.stderr)
+        self.assertIn('never substituted', result.stderr)
         # Refused before the rig 'ps' inventory lookup and before any 'up'.
         commands = [r['args'][0] for r in self.records()]
         self.assertNotIn('ps', commands)
         self.assertFalse((self.root / 'state').exists())
+
+    def test_an_exhausted_or_unverified_named_account_refuses(self):
+        self.signed('openai-alpha', 'codex', verified=False)
+        result = self.call('start', 'codex', '--cwd', str(self.root), '--account', 'openai-alpha')
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('not signed in', result.stderr)
+        self.signed('openai-alpha', 'codex')
+        self.used('openai-alpha', 100)
+        result = self.call('start', 'codex', '--cwd', str(self.root), '--account', 'openai-alpha')
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('openai-alpha is exhausted', result.stderr)
+        self.assertFalse((self.root / 'state').exists())
+
+    def test_a_folder_whose_settings_override_the_provider_refuses_the_seat(self):
+        # The check of configuration files runs for a seat too, and names the file, never its values.
+        self.signed('anthropic-bravo', 'claude')
+        (self.root / '.claude').mkdir()
+        (self.root / '.claude/settings.json').write_text('{"env": {"ANTHROPIC_BASE_URL": "https://proxy.invalid"}}')
+        result = self.call('start', 'claude', '--cwd', str(self.root), '--account', 'anthropic-bravo')
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('overrides authentication or the provider', result.stderr)
+        self.assertIn('.claude/settings.json', result.stderr)
+        self.assertNotIn('proxy.invalid', result.stderr)
+        self.assertNotIn('ps', [r['args'][0] for r in self.records()])
 
     def test_account_mismatched_runtime_is_rejected_by_argument_parsing(self):
         result = self.call('start', 'codex', '--cwd', str(self.root), '--account', 'anthropic-alpha')
@@ -108,8 +113,7 @@ print(os.environ.get('ACCOUNT_PLAN', json.dumps({'launch_allowed': False, 'reaso
         self.assertEqual(self.records(), [])
 
     def test_account_path_writes_distinct_named_spec_without_config_home(self):
-        member = {'runtime': 'codex', 'cwd': str(self.root), 'config_home': str(self.root / 'accounts/openai-alpha')}
-        self.env['ACCOUNT_PLAN'] = json.dumps({'launch_allowed': True, 'selected': 'openai-alpha', 'member': member})
+        self.signed('openai-alpha', 'codex')
         result = self.call('start', 'codex', '--cwd', str(self.root), '--account', 'openai-alpha')
         self.assertEqual(result.returncode, 0, result.stderr)
         spec_path = self.root / 'state' / 'development-codex-openai-alpha.yaml'
@@ -117,6 +121,7 @@ print(os.environ.get('ACCOUNT_PLAN', json.dumps({'launch_allowed': False, 'reaso
         text = spec_path.read_text()
         self.assertIn('name: development-codex-openai-alpha', text)
         self.assertIn('runtime: codex', text)
+        self.assertIn(f'cwd: {json.dumps(str(self.root.resolve()))}', text)
         self.assertNotIn('config_home', text)   # stock OpenRig refuses it; the seat launcher brings the account
         self.assertEqual(spec_path.stat().st_mode & 0o777, 0o600)
         commands = [r['args'] for r in self.records() if r['args'][0] == 'up']
@@ -124,18 +129,17 @@ print(os.environ.get('ACCOUNT_PLAN', json.dumps({'launch_allowed': False, 'reaso
         self.assertEqual(commands[0][1], str(spec_path))
 
     def test_account_path_native_default_spec_has_no_config_home(self):
-        member = {'runtime': 'claude-code', 'cwd': str(self.root)}
-        self.env['ACCOUNT_PLAN'] = json.dumps({'launch_allowed': True, 'selected': 'anthropic-bravo', 'member': member})
+        self.signed('anthropic-bravo', 'claude')
         result = self.call('start', 'claude', '--cwd', str(self.root), '--account', 'anthropic-bravo')
         self.assertEqual(result.returncode, 0, result.stderr)
         spec_path = self.root / 'state' / 'development-claude-anthropic-bravo.yaml'
         text = spec_path.read_text()
+        self.assertIn('runtime: claude-code', text)   # OpenRig's own name for the Claude Code runtime
         self.assertNotIn('config_home', text)
 
     def test_existing_per_account_rig_is_reused_without_regenerating_spec(self):
         self.env['RIGS'] = json.dumps([{'name': 'development-codex-openai-alpha'}])
-        member = {'runtime': 'codex', 'cwd': str(self.root), 'config_home': str(self.root / 'accounts/openai-alpha')}
-        self.env['ACCOUNT_PLAN'] = json.dumps({'launch_allowed': True, 'selected': 'openai-alpha', 'member': member})
+        self.signed('openai-alpha', 'codex')
         result = self.call('start', 'codex', '--cwd', str(self.root), '--account', 'openai-alpha')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse((self.root / 'state').exists())
@@ -149,21 +153,6 @@ print(os.environ.get('ACCOUNT_PLAN', json.dumps({'launch_allowed': False, 'reaso
         self.assertFalse((self.root / 'state').exists())
         commands = [r['args'] for r in self.records() if r['args'][0] == 'up']
         self.assertTrue(commands[0][1].endswith('integrations/openrig/codex.yaml'))
-
-
-class AiEnvironmentRunRefusesOpenrig(unittest.TestCase):
-    """ai-environment run must not exec the bare native client for an
-    'openrig' client even once host_plan allows an openrig plan: OpenRig
-    seats are launched through dev-workspace --account, never a bare exec.
-    """
-    def test_run_refuses_openrig_client(self):
-        with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder).resolve()
-            result = subprocess.run([str(ROOT / 'bin/ai-environment'), '--registry', str(root / 'registry.json'),
-                                     'run', '--client', 'openrig', '--provider', 'openai', '--cwd', str(root), '--'],
-                                    capture_output=True, text=True, timeout=15)
-            self.assertEqual(result.returncode, 2)
-            self.assertIn('dev-workspace --account', result.stderr)
 
 
 if __name__ == '__main__':

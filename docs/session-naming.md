@@ -10,7 +10,7 @@ the [session index](session-index.md). Neither is a file name.
 | Fact | Meaning | Recorded by |
 | --- | --- | --- |
 | owner | `user` (the owner) or the agent: `assistant`, `ops`, `engineer` | the index, from the home it read |
-| runtime | `claude`, `codex`, `pi` (and `copilot`, `openclaw` history) | the index adapter |
+| runtime | `claude`, `codex`, `pi` | the index adapter |
 | place | the working directory (`cwd`) | the native record |
 | kind | `chat` (owner present), `work`, `run` (unattended) | dev-server `agent-run`, via `ingest --launch` |
 | portal | `term`, `desk` (the shared chat), `phone`, `none` | dev-server `agent-run` |
@@ -18,11 +18,6 @@ the [session index](session-index.md). Neither is a file name.
 | when | first and last timestamps in the transcript | the index, from the transcript |
 
 `ai-session list` and `show` print these; `list --owner AGENT` and `--search` find by them.
-Before 2026-10-05 dev-server put these facts in a file name (`session-path`:
-`~/sessions/Y/M/D/HHMM.kind.portal.model.who.place`) and filled that file with a raw copy of
-the transcript (`agent-run`, the copy at the end; `ai` opened it with `less`). That was a
-second session store holding raw JSON, against this repository's one-index contract, so the
-code was wrong and was removed; the facts moved into the index.
 
 # Automatic session naming
 
@@ -46,7 +41,7 @@ Every session title on every client uses one format. `bin/ai-title` formats and 
 | --- | --- |
 | `host` | Short host name where the session runs (`dev-server`), or `web` for ChatGPT and claude.ai. |
 | `project` | Repository name (a worktree names its main repository), `home`, or `none`. |
-| `purpose` | Engineering kinds from `ROLES.md` (`feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `loop`, `review`, `spike`, `forensics`, `ops`), or `chat`, `plan`, `research`, `write`, `admin`, `learn`, `personal`. |
+| `purpose` | Engineering kinds (`PURPOSES` in `lib/ai_ecosystem/naming.py`: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `loop`, `review`, `spike`, `forensics`, `ops`), or `chat`, `plan`, `research`, `write`, `admin`, `learn`, `personal`. |
 | `area` | Commit scope for engineering; a one-word topic otherwise (`travel`, `acme`). `misc` when unknown. |
 | `Description #ref` | Sentence case. `#ref` is the pull request or issue number when one exists. `purpose(area): Description #ref` is at most 80 characters. |
 | `who` | Person or agent that started the session: the Unix user (`owner`, `assistant`, `ops`, `engineer`), or the launcher's `DEV_SESSION_WHO` (`loop#12`, `workers-issue-12@dev`). |
@@ -75,23 +70,7 @@ Example: `[dev-server/dev-platform] feat(platform): Unify session naming · owne
   in `what`. The formatter redacts obvious tokens; that is a backstop, not permission.
 - Preserve native session/thread IDs, account selection, ownership and worktree bindings.
   Naming does not take over a session, resume it, change its scope, or authorize execution.
-- Owner decision, 2026-11-06: all historical sessions are renamed to this format. A rename
-  keeps the old title as `what`. Each bulk rename writes a backup first and skips live
-  sessions. `ai-title check` reports titles that do not conform.
-
-## Rename history
-
-`ai-title rename [--store claude|codex|pi|copilot|all] [--home DIR] [--dry-run] [--backup-dir DIR]
-[--skip-live-minutes 30]` renames every session in the local stores (`lib/ai_ecosystem/retitle.py`).
-
-- It copies each file it changes to `~/.local/state/dev-platform/retitle-backup/<timestamp>/`
-  (same relative paths) and writes `manifest.json` there before it changes anything.
-- `ai-title rename --undo MANIFEST` reverses a run.
-- It skips a session changed in the last 30 minutes and a title that already conforms, so a second run changes nothing.
-- Claude: one `custom-title` and one `agent-name` line at the end of the transcript.
-  Codex: `thread/name/set` when the app-server answers, otherwise `threads.name`/`title` and `session_index.jsonl`.
-  Pi: one `session_info` line. Copilot: the `name:` key of `workspace.yaml`.
-- Another Unix user runs it for the own home: `ai-title rename --home /home/<user>`.
+- `ai-title check` reports titles that do not conform.
 
 ## Use the owning runtime
 
@@ -101,7 +80,6 @@ Example: `[dev-server/dev-platform] feat(platform): Unify session naming · owne
 | Claude Code CLI | Installed CLI `-n/--name` sets a new session's display name. The interactive `/rename` command is a user-facing native control; do not assume an agent can invoke slash commands as tools. |
 | Codex | New threads are named by `hooks/codex-session-title.py` (SessionStart, UserPromptSubmit, PostToolUse, Stop) through the app-server control socket `~/.codex/app-server-control/app-server-control.sock`: WebSocket, JSON-RPC `thread/name/set`, the call that `/rename` and the desktop app use. It reads the thread table read-only to find the client (`cli`, `exec`, `vscode`, desktop app, subagent), never writes SQLite, never changes a conforming title and skips resumed threads. PostToolUse only wraps a model-written `purpose(area): Description`, so a long turn gets the full title at once. A spawned thread has no user prompt: its title comes from `agent_path`, and its who is `<nickname>@<parent area>`. `ai-guardrails install` links the hook and lists it in `hooks.json`. Codex runs a hook only after its hash is trusted: `codex_control.trust_hooks` writes that through the app-server config writer. Persona homes without a daemon trust the hook in the Codex hook review. |
 | Pi | `integrations/pi/session-title.mjs` names a new session on `session_start` and on the first input, sets the terminal title, and gives the agent a `session_title` tool. Roles load it in `role-resources.mjs` with the role as `who`. `ai-guardrails install` copies it to `~/.pi/agent/extensions/session-title.ts` for plain `pi`. |
-| OpenClaw (retired) | Not used. Its preserved sessions are archives and are never renamed. |
 | Pi roles | The role launcher may give a new conversation its title (`ai-session conversation create --title`). Check the installed Pi for a native session-name control before using one. |
 | OpenRig | Name the underlying harness conversation through a supported control. Rig names, seat IDs, member labels and native conversation titles are distinct; changing one does not prove the others changed. |
 | VS Code / other clients | Use the client's exposed native naming action if available. Otherwise retain its automatic title or suggest a concise title; do not invent a rename API. |
@@ -132,8 +110,8 @@ Every launcher builds its title with `bin/ai-title format` and exports `DEV_SESS
 
 ## Web and desktop titles
 
-On 2026-11-06 the owner renamed the sessions that live in apps and websites to the one
-format. The procedure is below. Run it again to name new chats.
+This procedure renames the sessions that live in apps and websites to the one format. Run it
+again to name new chats.
 
 1. Claude desktop (Code tab). List sessions with `list_sessions` (include archived).
    Skip sessions where `isRunning` is true and the parent session.
@@ -162,13 +140,10 @@ Notes:
   Host is `cloud`, client is `claude-ai`. Rig seats use type `seat` and the seat name
   (`role@rig`) as who. Other cloud sessions use who `owner` and type `cloud`. Renaming keeps a
   session archived.
-- ChatGPT Codex cloud had no tasks at the time of the run.
 - New web chats are named by hand or by running this procedure again. No hook names them.
 
-## Evidence
+## References
 
-- Local `claude --help`, inspected 2026-09-24, documents `-n, --name <name>` as the display
-  name shown in the prompt box, resume picker and terminal title.
 - [Claude Code CLI reference](https://code.claude.com/docs/en/cli-reference) and
   [interactive mode](https://code.claude.com/docs/en/interactive-mode).
 - [Codex app-server](https://developers.openai.com/codex/app-server), `thread/name/set`.
@@ -190,7 +165,7 @@ The installer puts the formatter and hooks in `~/.local/share/dev-platform-namin
 Claude Code hook to `~/.claude/settings.json` and to each `~/.claude-accounts/*/settings.json`.
 The Claude Code CLI, the desktop app and the IDE extensions read these files. It adds the Codex
 hook to `~/.codex/hooks.json`, and the naming rule and the owner's words
-(`skills/develop/owner-words.md`, see `docs/owner-words.md`) to each global prompt file. It keeps all other
+(`skills/develop/owner-words.md`, see "Owner words" below) to each global prompt file. It keeps all other
 settings, backs up each changed file to `~/.local/state/dev-platform-naming/backup/`, and is safe
 to run again after an update.
 
@@ -223,3 +198,28 @@ is the same as `skills/develop/ste100.md`. Otherwise it leaves the text and writ
 `core.hooksPath` only when it is unset or points into a dev-platform install. A repository that the
 Mac's `~/.config/dev-platform/repos.conf` does not name is tier 3, so the guard and the git hooks
 apply the strictest rules there. Backups go to `~/.local/state/dev-platform-naming/backup/`.
+
+## Owner words
+
+`skills/develop/owner-words.md` gives each of the owner's short words one meaning, and holds the
+ask-first rule. It is the one source file. The owner decides each meaning.
+
+| Machine | Claude Code | Codex | Pi |
+| --- | --- | --- | --- |
+| dev-server (platform release) | `ai-guardrails install` puts `@/opt/dev-platform/current/skills/develop/owner-words.md` in the block of `~/.claude/CLAUDE.md` and of each `~/.claude-accounts/*/CLAUDE.md`. An activation updates it. | `ai-guardrails install` puts the text in the block of `~/.codex/AGENTS.md`. | `ai-guardrails install` puts the text in the block of `~/.pi/agent/APPEND_SYSTEM.md`. |
+| A machine without the platform | `naming-install.py` (from `bin/ai-title-bundle`) puts the text in its block of `~/.claude/CLAUDE.md`. | The same, in `~/.codex/AGENTS.md`. | The same, in `~/.pi/agent/APPEND_SYSTEM.md`, when `~/.pi/agent` exists. |
+
+Codex and Pi have no include, so they get a copy of the text. `ai-guardrails status` and
+`naming-install.py status` report a copy that is out of date. After a change to the word list,
+do these steps:
+
+1. On dev-server, activate the release, then run `ai-guardrails install` for each home.
+2. Write the installer again: `bin/ai-title-bundle > ~/.local/share/dev-platform/naming-install.py`.
+3. On each other machine, run the installer (see "Machines without the platform").
+
+To prove it, open a new session of each agent and ask "what does push mean?".
+
+`ai-prompt-verbs --project <part of the path>` counts the vague verbs in the local Claude, Codex
+and Pi prompts. `--since` and `--until` set a time window. `--save rows.jsonl` keeps the rows,
+and `--rows rows.jsonl` counts them again. The extraction rules are in
+`lib/ai_ecosystem/prompt_verbs.py`.

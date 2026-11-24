@@ -15,10 +15,10 @@ import subprocess
 import sys
 import tempfile
 
+from . import tiers
 from .store import ID_RE, VERSION, default_root
 
 PLATFORM = Path(__file__).resolve().parents[2]
-REPO_RE = re.compile(r'^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$')
 VERBS = ('status', 'plan', 'start', 'go', 'pause', 'collect')
 
 
@@ -81,15 +81,9 @@ def catalog(config, dev_root=None):
     projects, warnings, identities = [], [], {}
     candidates = dev_root_candidates(dev_root) if dev_root else []
     if config.exists():
-        for number, line in enumerate(config.read_text().splitlines(), 1):
-            if not line.strip() or line.lstrip().startswith('#'):
-                continue
-            # key=value fields (tier=, forge=, tracker=, slots=, large=) belong to tiers.py
-            fields = [f for f in line.split() if '=' not in f]
-            if len(fields) not in (3, 4) or not REPO_RE.fullmatch(fields[0]) or fields[2] not in ('local', 'owner', 'bot'):
-                raise ValueError(f'{config}:{number}: expected owner/repo checkout local|owner|bot [base] [key=value ...]')
-            repo, path = fields[:2]
-            root = Path(path).expanduser().resolve()
+        for entry in tiers.read_conf(config):   # the one parser of the registry; it raises ValueError with the line
+            repo = entry['repo']
+            root = Path(entry['path']).resolve()
             common = identity(root)
             if not common and candidates:
                 moved_root, moved_common = relocated_checkout(root, repo, candidates)
@@ -100,7 +94,7 @@ def catalog(config, dev_root=None):
                 raise ValueError(f'ambiguous configured repository: {repo}')
             item = dict(id=project_id(repo), repo=repo, root=str(root), group=repo.split('/')[0],
                         common_dir=common, available=bool(common), loop_enabled=True,
-                        source='repos.conf', mode=fields[2])
+                        source='repos.conf', mode=entry['mode'])
             projects.append(item)
             if common:
                 identities[common] = item

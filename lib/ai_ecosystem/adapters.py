@@ -4,16 +4,12 @@ An adapter yields Source objects; a source that raises is reported as an error a
 existing index entries are left untouched.
 """
 import json
-import os
 from pathlib import Path
-import shutil
 import sqlite3
-import subprocess
 import time
 
 HEADER_LINES = 40
 HEADER_BYTES = 256 * 1024
-VSCODE_MAX_BYTES = 32 * 1024 * 1024
 
 
 class Source:
@@ -21,7 +17,7 @@ class Source:
         self.key, self.runtime, self.store, self.owner, self.read = key, runtime, store, owner, read
 
 
-def _rec(native_id, cwd=None, title=None, branch=None, updated_at=None, fmt='supported', extra=None):
+def _rec(native_id, cwd=None, title=None, branch=None, updated_at=None, extra=None):
     if not isinstance(native_id, (str, int)) or isinstance(native_id, bool):
         raise ValueError('unsupported native identifier')
     # Native metadata can be malformed. Never copy nested prompt/request objects through
@@ -29,15 +25,8 @@ def _rec(native_id, cwd=None, title=None, branch=None, updated_at=None, fmt='sup
     scalar = lambda value: value if value is None or isinstance(value, (str, int, float, bool)) else None
     text = lambda value: value if isinstance(value, str) else None
     return {'native_id': str(native_id), 'cwd': text(cwd), 'title': text(title), 'branch': text(branch),
-            'updated_at': scalar(updated_at), 'format': fmt,
+            'updated_at': scalar(updated_at),
             'native': {key: scalar(value) for key, value in (extra or {}).items()}}
-
-
-def codex_homes(home):
-    homes = [(home / '.codex', 'user', 'codex:default')]
-    for path in sorted((home / '.openclaw/agents').glob('*/agent/codex-home')):
-        homes.append((path, 'openclaw', f'codex:openclaw:{path.parent.parent.name}'))
-    return homes
 
 
 def read_codex(codex_home):
@@ -118,31 +107,6 @@ def read_claude(claude_home, map_path=None):
                        extra={'transcript_path': str(path), 'transcript_missing': False})
 
 
-def read_openclaw(timeout=30):
-    exe = shutil.which('openclaw')
-    if not exe:
-        raise FileNotFoundError('openclaw not on PATH')
-    run = subprocess.run([exe, 'sessions', '--all-agents', '--limit', 'all', '--json'],
-                         capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL)
-    if run.returncode:
-        raise RuntimeError(f'openclaw sessions exited {run.returncode}')
-    data = json.loads(run.stdout)
-    if not isinstance(data, dict) or not isinstance(data.get('sessions'), list):
-        raise RuntimeError('openclaw sessions output not recognized')
-    stores = {s.get('agentId'): s.get('path') for s in data.get('stores') or [] if isinstance(s, dict)}
-    for s in data['sessions']:
-        if isinstance(s, dict) and s.get('sessionId'):
-            agent, native_store = s.get('agentId'), stores.get(s.get('agentId'))
-            if not isinstance(agent, str) or not agent or not isinstance(native_store, str) or not native_store:
-                raise RuntimeError('openclaw native agent/store identity unavailable')
-            rec = _rec(s['sessionId'], None, s.get('key'), None, s.get('updatedAt'),
-                       extra={'agentId': agent, 'key': s.get('key'), 'store': native_store})
-            rec['identity_store'] = json.dumps([agent, native_store], separators=(',', ':'))
-            yield rec
-    if data.get('hasMore') or data.get('errors'):
-        yield {'truncated': True}
-
-
 def _pi_header(path):
     found = {}
     with path.open('rb') as handle:
@@ -191,41 +155,12 @@ def read_pi(root, archived=False):
                           'account': h.get('account'), 'conversation': conversation, 'archived': archived})
 
 
-def vscode_roots(home):
-    return [home / 'Library/Application Support/Code/User/workspaceStorage', home / '.config/Code/User/workspaceStorage']
-
-
-def read_vscode(root):
-    if not root.is_dir():
-        raise FileNotFoundError('native store unavailable')
-    for ws in sorted(root.glob('*')):
-        folder = None
-        try:
-            folder = json.loads((ws / 'workspace.json').read_text()).get('folder')
-        except (OSError, ValueError, AttributeError):
-            pass
-        for chat in sorted((ws / 'chatSessions').glob('*.json')):
-            native = f'{ws.name}/{chat.stem}'
-            if chat.stat().st_size > VSCODE_MAX_BYTES:
-                yield _rec(native, folder, fmt='unsupported')
-                continue
-            try:
-                d = json.loads(chat.read_text())
-            except ValueError:
-                d = None
-            if not isinstance(d, dict) or 'sessionId' not in d:
-                yield _rec(native, folder, fmt='unsupported')
-                continue
-            title = d.get('customTitle') if isinstance(d.get('customTitle'), str) else None
-            yield _rec(native, folder, title, None, d.get('lastMessageDate') or d.get('creationDate'))
-
-
-def discover(home=None, openclaw=True, previous=None, environments_root=None):
+def discover(home=None, previous=None):
     home = Path(home or Path.home())
     sources = []
-    for path, owner, store in codex_homes(home):
-        if path.is_dir():
-            sources.append(Source(store, 'codex', str(path), owner, lambda p=path: read_codex(p)))
+    if (home / '.codex').is_dir():
+        sources.append(Source('codex:default', 'codex', str(home / '.codex'), 'user',
+                              lambda: read_codex(home / '.codex')))
     for root, key, archived in pi_roots(home):
         if root.is_dir():
             sources.append(Source(key, 'pi', str(root), 'user', lambda r=root, a=archived: read_pi(r, a)))
@@ -264,18 +199,10 @@ def discover(home=None, openclaw=True, previous=None, environments_root=None):
             def invalid_registry():
                 raise ValueError('account registry unavailable or malformed')
             sources.append(Source('accounts:registry', 'registry', str(registry), 'user', invalid_registry))
-    if openclaw and shutil.which('openclaw'):
-        sources.append(Source('openclaw:all-agents', 'openclaw', 'openclaw', 'openclaw', read_openclaw))
-    for root in vscode_roots(home):
-        if root.is_dir():
-            sources.append(Source(f'vscode:{root}', 'copilot', str(root), 'vscode', lambda r=root: read_vscode(r)))
-    if environments_root is not None:
-        from .environments import sources as environment_sources
-        sources.extend(environment_sources(Path(environments_root)))
     # A vanished previously indexed store is unavailable, not an empty successful scan.
     keys = {s.key for s in sources}
     for key, old in (previous or {}).items():
-        if key in keys or (old.get('runtime') == 'openclaw' and not openclaw):
+        if key in keys:
             continue
         if not all(old.get(k) for k in ('runtime', 'store', 'owner')):
             continue

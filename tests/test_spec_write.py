@@ -352,11 +352,16 @@ class Relations(Write):
         self.assertEqual((done.returncode, done.stdout), (0, ''), done.stderr)
         self.assertTrue(self.state('lock').exists())   # one write command at a time for each project
 
+    def project_record(self, repository):
+        """A project record of the platform that names this repository (SDD-PJ-01)."""
+        projects = self.tmp / 'projects'
+        projects.mkdir(exist_ok=True)
+        (projects / 'fixture.json').write_text(json.dumps({'schema': 'dev-platform.spec-tree@1', 'name': 'fixture', 'top': None,
+                                                          'repositories': [repository]}))
+        self.env['DEV_PLATFORM_PROJECTS'] = str(projects)
+
     def test_a_command_works_in_a_worktree_of_the_registered_repository(self):   # SDD-PJ-09
-        (self.repo / 'tree.json').write_text(json.dumps({'schema': 'dev-platform.spec-tree@1', 'name': 'fixture', 'top': None,
-                                                         'repositories': [{'name': 'r', 'path': '.', 'layout': 'single'}]}))
-        (self.repo / '.git/info/exclude').write_text('tree.json\ntree.html\ntree.data.json\n')
-        (self.tmp / 'repos.conf').write_text(f'owner/repo {self.repo} local main tree=tree.json\n')
+        self.project_record({'name': 'r', 'path': str(self.repo), 'layout': 'single'})
         sh(self.repo, 'git', 'worktree', 'add', '-q', '-b', 'work', str(self.tmp / 'work'))
         work = self.tmp / 'work'
         done = subprocess.run([sys.executable, '-I', str(CLI), 'set', 'CA-03', '--text', '-'], env=self.env, capture_output=True, text=True,
@@ -372,10 +377,8 @@ class Relations(Write):
         sh(self.repo, 'git', 'branch', 'spec')            # the branch with the specification
         sh(self.repo, 'git', 'rm', '-q', '-r', 'docs/spec')
         self.commit('main has no specification')
-        (self.repo / 'tree.json').write_text(json.dumps({'schema': 'dev-platform.spec-tree@1', 'name': 'fixture', 'top': None,
-                                                         'repositories': [{'name': 'r', 'path': '.', 'layout': 'single', 'source': 'spec'}]}))
-        (self.repo / '.git/info/exclude').write_text('tree.json\ntree.html\ntree.data.json\n.claude/\n')
-        (self.tmp / 'repos.conf').write_text(f'owner/repo {self.repo} local main tree=tree.json\n')
+        (self.repo / '.git/info/exclude').write_text('.claude/\n')
+        self.project_record({'name': 'r', 'path': str(self.repo), 'layout': 'single', 'source': 'spec'})
         run = lambda *args, **kw: subprocess.run([sys.executable, '-I', str(CLI), *args], env=self.env, capture_output=True, text=True,
                                                  cwd=self.repo, **kw)
         done = run('why', 'CA-02')

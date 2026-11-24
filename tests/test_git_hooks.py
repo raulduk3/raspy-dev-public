@@ -28,9 +28,7 @@ class GitHookFixture(unittest.TestCase):
                         GIT_TERMINAL_PROMPT='0',
                         GIT_AUTHOR_NAME='Test', GIT_AUTHOR_EMAIL='test@example.invalid',
                         GIT_COMMITTER_NAME='Test', GIT_COMMITTER_EMAIL='test@example.invalid',
-                        DEV_PLATFORM_REPOS=str(self.config / 'repos.conf'),
-                        DEV_PLATFORM_PERSONAL=str(self.config / 'personal.conf'))
-        (self.config / 'personal.conf').write_text('')
+                        DEV_PLATFORM_REPOS=str(self.config / 'repos.conf'))
         self.remote = self.tmp / 'remote.git'
         self.repo = self.tmp / 'repo'
         self.git(self.tmp, 'init', '-q', '--bare', '-b', 'main', str(self.remote))
@@ -238,10 +236,11 @@ class CommitMsg(GitHookFixture):
 
 
 class PreCommitHookTests(GitHookFixture):
-    """decisions=frozen: no commit touches docs/decisions/ or adds a SPEC-AMENDMENTS.md."""
+    """decisions=none (the default) and decisions=frozen: no commit touches docs/decisions/ or adds a SPEC-AMENDMENTS.md."""
 
     def setUp(self):
         super().setUp()
+        self.freeze('decisions=open')   # the history of the repository is older than the mode
         (self.repo / 'docs/decisions').mkdir(parents=True)
         (self.repo / 'docs/decisions/0001-old.md').write_text('old\n')
         self.git(self.repo, 'add', 'docs')
@@ -275,6 +274,32 @@ class PreCommitHookTests(GitHookFixture):
         self.freeze()
         self.accepted(self.stage('docs/spec/game/sdd.md'))
 
+    def test_none_is_the_default_and_refuses_a_decision_and_a_new_ledger(self):
+        for extra in ('tier=3', 'decisions=none'):   # a line with no field, and the field itself
+            with self.subTest(extra=extra):
+                self.freeze(extra)
+                self.refused(self.stage('docs/decisions/0002-new.md'), 'decisions=none')
+                self.git(self.repo, 'reset', '-q')
+                self.refused(self.stage('docs/decisions/0001-old.md', 'changed\n'), 'docs/decisions/0001-old.md')
+                self.git(self.repo, 'reset', '-q')
+                self.git(self.repo, 'checkout', '-q', '--', '.')
+                self.refused(self.stage('docs/spec/SPEC-AMENDMENTS.md'), 'SPEC-AMENDMENTS.md')
+                self.git(self.repo, 'reset', '-q')
+        self.accepted(self.stage('docs/spec/SDD.md'))   # the specification itself changes
+
+    def test_none_allows_the_deletion_of_an_old_decision_and_frozen_does_not(self):
+        self.freeze('decisions=frozen')
+        self.git(self.repo, 'rm', '-q', 'docs/decisions/0001-old.md')
+        self.refused(self.run_git('commit', '-q', '-m', 'docs: drop'), 'decisions=frozen')
+        self.freeze('decisions=none')
+        self.accepted(self.run_git('commit', '-q', '-m', 'docs: drop the old record'))
+        self.assertFalse((self.repo / 'docs/decisions/0001-old.md').exists())
+
+    def test_none_leaves_a_ledger_that_exists_open_to_a_change(self):
+        self.stage('docs/spec/SPEC-AMENDMENTS.md')
+        self.freeze('decisions=none')
+        self.accepted(self.stage('docs/spec/SPEC-AMENDMENTS.md', 'a row of the old history\n'))
+
     def test_open_and_unregistered_repositories_allow_decisions(self):
         self.freeze('decisions=open')
         self.accepted(self.stage('docs/decisions/0002-new.md'))
@@ -296,8 +321,12 @@ class PreCommitHookTests(GitHookFixture):
         self.assertIn('"decisions": "frozen"', run())
         self.assertIn('"spec": "domains"', run())
         self.freeze('tier=3')
-        self.assertIn('"decisions": "open"', run())
+        self.assertIn('"decisions": "none"', run())   # the default of a registered line: no decision record
         self.assertIn('"spec": "single"', run())
+        self.freeze('decisions=open')
+        self.assertIn('"decisions": "open"', run())
+        (self.config / 'repos.conf').write_text('')
+        self.assertIn('"decisions": "open"', run())   # a repository that no line names: the platform sets no rule
         self.freeze('decisions=closed')
         bad = subprocess.run(['python3', '-I', str(tiers), str(self.repo)], env=self.env, capture_output=True, text=True)
         self.assertEqual(bad.returncode, 2)

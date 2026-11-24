@@ -60,14 +60,14 @@ No attribution trailer and no generated-with line: every commit, pull request an
 
 - `README.md` says what the repository contains and how to use it.
 - `docs/VERSIONING.md` defines the SemVer/git graph contract.
-- `docs/` holds the contracts; `docs/decisions/` holds accepted decisions as records.
-- `docs/tasks/` holds planned work and known deviations, and `docs/decisions/` proposed decisions, cited by number (an issue tracker instead, where `CONTRIBUTING.md` says so).
+- `docs/` holds the contracts. The specification under `docs/spec/` is the one record of a requirement. The repository keeps no decision record and no amendment ledger; Git records each change.
+- `docs/tasks/` holds planned work and known deviations, cited by number (an issue tracker instead, where `CONTRIBUTING.md` says so).
 
 If code and contract disagree, say so with evidence and fix the one that is wrong. Do not improvise a local workaround.
 
 ## Scope freezes
 
-None. A new feature needs the owner's accepted decision before a branch is cut.
+None. A new feature needs the owner's acceptance before a branch is cut.
 
 ## Precedence
 

@@ -44,15 +44,17 @@ DEFAULT = {
     # One profile for a rig (SDD-PJ-01): `project` names the project record, which holds the repository, the worker
     # slots and the check command. `repo` is the older way to name the repository with no record.
     'schema': SCHEMA, 'kind': None, 'project': None, 'repository': None, 'repo': '',
-    'commands': {'install': None, 'cheap': None, 'proof': None, 'affected': None, 'full': None, 'build': None},
+    'commands': {'install': None, 'cheap': None, 'proof': None, 'affected': None, 'full': None},
     'places': {'light': 3, 'heavy': 1, 'mem_min_mb': 3000, 'load_max': None},
-    'batch': {'max_tasks': 6, 'max_wait_s': 600},
-    'wide': [], 'review_kinds': [],
+    'batch': {'max_tasks': 6},
+    'wide': [],
     # runtime: claude (one headless run for each task), pi, hand (the caller starts the worker: an in-session agent
     # or one `codex exec` run), or seat (one seat in the OpenRig rig `rig`, of the runtime `seat_runtime`).
     # limit: null takes the slots of the project.
     'workers': {'limit': None, 'runtime': 'claude', 'rig': None, 'seat_runtime': 'claude', 'model': None, 'rules': RULES},
 }
+# Fields of an older profile that no function read. A profile that still holds one gets a clear refusal.
+REMOVED = {'commands.build', 'batch.max_wait_s', 'review_kinds'}
 TRIAL = '.claude/worktrees/forge-check'
 
 
@@ -77,12 +79,14 @@ def state_dir():
     return Path(os.environ.get('DEV_FORGE_STATE') or Path.home() / '.local/state/dev-platform/forge')
 
 
-def merged(base, over, where='forge.json'):
+def merged(base, over, where='forge.json', path=''):
     out = dict(base)
     for key, value in over.items():
+        if path + key in REMOVED:
+            raise Refused(f'{where}: the field {key} is removed and nothing reads it; delete it from the profile')
         if key not in base:
             raise Refused(f'{where}: unknown field {key}')
-        out[key] = merged(base[key], value, f'{where}: {key}') if isinstance(base[key], dict) and isinstance(value, dict) else value
+        out[key] = merged(base[key], value, f'{where}: {key}', f'{path}{key}.') if isinstance(base[key], dict) and isinstance(value, dict) else value
     return out
 
 
@@ -216,7 +220,7 @@ def detect(checkout):
             scripts = json.loads((checkout / 'package.json').read_text()).get('scripts') or {}
         except json.JSONDecodeError:
             scripts = {}
-        for field, names in (('cheap', ('typecheck', 'lint')), ('proof', ('test',)), ('full', ('check', 'test')), ('build', ('build',))):
+        for field, names in (('cheap', ('typecheck', 'lint')), ('proof', ('test',)), ('full', ('check', 'test'))):
             found = next((n for n in names if n in scripts), None)
             if found:
                 commands[field] = f'{manager} run {found}'
@@ -225,10 +229,10 @@ def detect(checkout):
         commands.update(install='uv sync --frozen' if has('uv.lock') else None, proof='python3 -m pytest -q {tests}', full='python3 -m pytest -q')
         notes.append('a Python project')
     elif has('Cargo.toml'):
-        commands.update(cheap='cargo check', proof='cargo test {tests}', full='cargo test', build='cargo build')
+        commands.update(cheap='cargo check', proof='cargo test {tests}', full='cargo test')
         notes.append('a Rust project')
     elif has('go.mod'):
-        commands.update(cheap='go vet ./...', proof='go test {tests}', full='go test ./...', build='go build ./...')
+        commands.update(cheap='go vet ./...', proof='go test {tests}', full='go test ./...')
         notes.append('a Go project')
     else:
         notes.append('no build file: a static project')
@@ -669,6 +673,23 @@ def head_of(state, checkout, item):
     return int(number), git(checkout, 'rev-parse', f'{commit}^{{commit}}')
 
 
+def record_pass(worktree, full):
+    """Write the pass record of check-once.sh for the goal worktree, so that the land runs no second check on the
+    tree that the batch checked (SDD-SC-08). Only where check-once.sh names the same check as the profile."""
+    once = ['bash', str(PLATFORM / 'hooks/check-once.sh')]
+    source = subprocess.run([*once, '--source'], cwd=worktree, capture_output=True, text=True)
+    if source.returncode or source.stdout.strip() != full.strip():
+        return False
+    digest = subprocess.run([*once, '--hash'], cwd=worktree, capture_output=True, text=True)
+    if digest.returncode:
+        return False
+    mark = Path(git(worktree, 'rev-parse', '--path-format=absolute', '--git-path', 'dev-platform'))
+    mark.mkdir(parents=True, exist_ok=True)
+    (mark / 'check-pass.tmp').write_text(digest.stdout.strip() + '\n')
+    (mark / 'check-pass.tmp').replace(mark / 'check-pass')
+    return True
+
+
 def cmd_batch(args):
     rig = rig_dir(args)
     profile = load_profile(rig)
@@ -729,6 +750,8 @@ def cmd_batch(args):
             drift = git(checkout, 'diff', '--name-only', fold[-1][1], goal_branch, '--', '.', ':(exclude)docs/tasks')
             if drift:
                 raise Refused(f'the folded tip differs from the checked tree in: {drift.splitlines()[0]}')
+            if state.get('worktree') and record_pass(state['worktree'], full):
+                print(f'recorded the pass of {goal_branch}: the land runs no second check on this tree')
     if bad:
         log = rig / f'failures/{bad[0]}.log'
         tail = '\n'.join(log.read_text(errors='replace').splitlines()[-25:]) if log.is_file() else ''

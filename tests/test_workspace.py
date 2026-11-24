@@ -1,5 +1,4 @@
 """Project grouping against real Git worktrees; delegation against the actual loop."""
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -27,7 +26,6 @@ class Workspace(unittest.TestCase):
         self.repo = self.dev / 'project'
         self.env = dict(os.environ, HOME=str(self.home), GIT_CONFIG_GLOBAL='/dev/null',
                         GIT_CONFIG_NOSYSTEM='1', DEV_PLATFORM_BRIEF=str(self.base / 'no-brief'),
-                        DEV_PLATFORM_PERSONAL=str(self.base / 'no-personal'),
                         LOOP_STATE_DIR=str(self.base / 'loop'),
                         PYTHONDONTWRITEBYTECODE='1')
         for key in ('GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'LOOP_MODEL', 'LOOP_CAP'):

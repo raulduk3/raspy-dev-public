@@ -15,7 +15,7 @@ import time
 ROOT = Path(__file__).resolve().parent.parent
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(ROOT / "lib"))
-from ai_ecosystem import paths, piseat, rigapproval, tiers  # noqa: E402
+from ai_ecosystem import accounts, paths, piseat, registry as account_registry, rigapproval, tiers  # noqa: E402
 
 VERSION = "0.6.10"
 NODE = f"node-v24.14.0-{paths.node_platform()}"
@@ -164,18 +164,27 @@ def permissive_seat(args, env):
 
 
 def worker_worktree(cwd, env):
-    """A worker seat works in a linked worktree on its own branch, as the loop cuts one per
-    issue (.claude/worktrees/loop-<issue>-<slug> on type/slug-<issue>). Returns the member
-    id, the branch and the common Git directory, or None."""
+    """A worker seat works in a linked worktree on its own branch (.claude/worktrees/loop-<issue>-<slug>
+    on type/slug-<issue>), or in a slot of the loop: a detached .claude/worktrees/slot-<k> of the
+    repository that holds the loop's task mark .worker-issue. Returns the member id, the branch
+    (the slot name for a slot) and the common Git directory, or None."""
     listing = subprocess.run(["git", "-C", str(cwd), "rev-parse", "--path-format=absolute",
                               "--show-toplevel", "--git-dir", "--git-common-dir"],
                              env=env, text=True, capture_output=True)
     branch = subprocess.run(["git", "-C", str(cwd), "symbolic-ref", "--short", "-q", "HEAD"],
                             env=env, text=True, capture_output=True).stdout.strip()
-    if listing.returncode != 0 or not branch:
+    if listing.returncode != 0:
         return None
     top, git_dir, common = (Path(line).resolve() for line in listing.stdout.splitlines())
     if top != cwd.resolve() or git_dir == common:
+        return None
+    if not branch:
+        # The loop names the seat workers-issue-<N>@<rig> from the slot's task mark.
+        mark = cwd / ".worker-issue"
+        issue = mark.read_text().strip() if mark.is_file() else ""
+        if (re.fullmatch(r"slot-\d+", cwd.name) and re.fullmatch(r"\d+", issue)
+                and common.name == ".git" and top.parent == common.parent / ".claude/worktrees"):
+            return f"issue-{issue}", cwd.name, common
         return None
     issue = re.match(r"loop-(\d+)-", cwd.name)
     member = f"issue-{issue.group(1)}" if issue else re.sub(r"[^a-z0-9]+", "-", branch.lower()).strip("-")
@@ -285,8 +294,8 @@ def worker_seat(args, rig, run, env, parser):
     cwd = args.cwd.resolve()
     identity = worker_worktree(cwd, env)
     if identity is None:
-        parser.exit(2, "A worker seat needs a linked worktree on its own branch, such as the one "
-                       "the loop cuts for an issue.\n")
+        parser.exit(2, "A worker seat needs a linked worktree on its own branch, or a slot of the "
+                       "loop that holds a task.\n")
     member_id, branch, common = identity
     logical = f"workers.{member_id}"
     rig_id = running_rig_id(run, args.rig)
@@ -305,7 +314,7 @@ def worker_seat(args, rig, run, env, parser):
         parser.exit(2, f"{args.rig} already has a seat for {logical}.\n")
     config_home = model = None
     if args.runtime == "pi":
-        # The API rig's worker: Pi on the OpenRouter key the rig's daemon holds, its model the
+        # A Pi worker: Pi on the OpenRouter key the rig's daemon holds, its model the
         # model file's `rig worker` line, its guard and advice tool written before it starts.
         try:
             model = piseat.model(os.environ.get("DEV_WORKSPACE_PI_MODEL") or "rig worker")
@@ -313,7 +322,7 @@ def worker_seat(args, rig, run, env, parser):
             parser.exit(2, f"dev-workspace: {error}\n")
         piseat.prepare(f"workers-{member_id}@{args.rig}", piseat.openrig_home(env))
     elif args.account:
-        config_home = resolve_account_plan(args.account, args.runtime, cwd, env, parser)["member"].get("config_home")
+        resolve_account_plan(args.account, args.runtime, cwd, parser)   # refuses here; a plan holds no client home
     # OpenRig's collector lands untracked in the worktree; keep it out of status and commits.
     exclude = common / "info/exclude"
     exclude.parent.mkdir(parents=True, exist_ok=True)
@@ -352,30 +361,20 @@ def worker_seat(args, rig, run, env, parser):
     return 0
 
 
-def resolve_account_plan(account, runtime, cwd, env, parser):
-    """Resolve --account through the account service and refuse early (before
-    touching rig inventory or writing any spec) on a disallowed plan, quoting
-    the service's own reason rather than inventing one.
+def resolve_account_plan(account, runtime, cwd, parser):
+    """Resolve --account with the one resolver (the choice `ai-account resolve` makes) and
+    refuse early, before touching rig inventory or writing any spec, with the resolver's own
+    reason. The check of the folder's configuration files runs first. A named account is used
+    or refused, never substituted. The seat gets its credential from the launcher, so the plan
+    holds only OpenRig's runtime name and the folder.
     """
-    service = Path(os.environ.get("DEV_WORKSPACE_ACCOUNT_SERVICE", ROOT / "bin/ai-environment"))
-    command = [str(service)]
-    registry = os.environ.get("DEV_WORKSPACE_ACCOUNTS_REGISTRY")
-    if registry:
-        command += ["--registry", registry]
-    command += ["plan", "--client", "openrig", "--provider", PROVIDER[runtime],
-                "--preferred-account", account, "--allow-unknown-quota", "--cwd", str(cwd)]
     try:
-        result = subprocess.run(command, env=env, capture_output=True, text=True, timeout=45)
-    except subprocess.TimeoutExpired:
-        parser.exit(2, "dev-workspace: account plan timed out; account service unavailable.\n")
-    try:
-        plan = json.loads(result.stdout)
-    except ValueError:
-        plan = None
-    if not plan or not plan.get("launch_allowed"):
-        reason = (plan or {}).get("reason") or result.stderr.strip() or "account plan unavailable"
-        parser.exit(2, f"dev-workspace: account plan refused: {reason}\n")
-    return plan
+        accounts.configuration_check(cwd)
+        chosen = account_registry.resolve(account_registry.load(), PROVIDER[runtime], runtime, account)
+    except (OSError, ValueError) as error:   # Refused is a ValueError
+        parser.exit(2, f"dev-workspace: account plan refused: {error}\n")
+    return {"selected": chosen["account"], "reason": chosen["reason"],
+            "member": {"runtime": "claude-code" if runtime == "claude" else runtime, "cwd": str(cwd)}}
 
 
 def main():
@@ -384,7 +383,7 @@ def main():
     parser.add_argument("runtime", nargs="?", choices=["codex", "claude", "engineer", "pi"],
                         help="engineer starts the control rig: a control seat, a Codex overseer and an "
                              "empty workers pod, from a team folder outside the repository; "
-                             "pi is an API-rig worker on the OpenRouter key (add-worker only)")
+                             "pi is a worker on the OpenRouter key (add-worker only)")
     parser.add_argument("--cwd", type=Path, help="Explicit working directory for a new control seat")
     parser.add_argument("--purpose", help="add-worker: purpose for the tmux window name (default: branch kind)")
     parser.add_argument("--area", help="add-worker: area for the tmux window name (default: repo)")
@@ -392,8 +391,8 @@ def main():
                                       "the new control rig's name, one per project")
     parser.add_argument("--shared", action="store_true", help="Attach an already configured kernel terminal; never boot one")
     parser.add_argument("--account",
-                        help="Resolve and pin one native account for this seat through the account "
-                             "service; renders a distinct per-account rig so two accounts never collide")
+                        help="Resolve and pin one native account for this seat with the account "
+                             "resolver; renders a distinct per-account rig so two accounts never collide")
     args = parser.parse_args()
     workers = args.action in ("add-worker", "remove-worker")
     if workers and (not args.rig or not args.cwd):
@@ -405,7 +404,7 @@ def main():
     if args.action == "add-worker" and args.runtime not in ("claude", "codex", "pi"):
         parser.error("add-worker requires a claude, codex or pi runtime")
     if args.runtime == "pi" and args.action != "add-worker":
-        parser.error("pi seats start with their team (api-rig, rig-shape --all pi); dev-workspace adds pi workers")
+        parser.error("pi seats start with their team (rig-shape --all pi); dev-workspace adds pi workers")
     if args.runtime == "pi" and args.account:
         parser.error("a pi seat runs on the OpenRouter key its rig's daemon holds; it takes no --account")
     if args.action in ("plan", "start") and (not args.runtime or not args.cwd):
@@ -468,7 +467,7 @@ def main():
         # Resolved unconditionally, even on the reuse path below: with a
         # named account this is identity revalidation, not reselection, and
         # it must refuse before any inventory lookup or spec is written.
-        account_plan = resolve_account_plan(args.account, args.runtime, args.cwd.resolve(), env, parser)
+        account_plan = resolve_account_plan(args.account, args.runtime, args.cwd.resolve(), parser)
         name = f"development-{args.runtime}-{args.account}"
     else:
         name = args.rig or f"development-{args.runtime}"

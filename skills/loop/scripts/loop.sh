@@ -30,8 +30,8 @@
 #   <rig>/workers/<issue>.{pid,log}
 #   _next/plan.md             a plan written while no rig branch is open
 #
-# Personal repositories are listed in ~/.config/dev-platform/personal.conf (the guard hook's
-# rule); every other repository is professional. Workers use an explicit allow list everywhere.
+# Personal repositories have tier 1 or 2 in repos.conf (the guard hook's rule); every other
+# repository is professional. Workers use an explicit allow list everywhere.
 # In a personal repository the assistant may run close --push; in a professional one close
 # refuses a body that names a tool or a model (the ghost check).
 #
@@ -70,17 +70,12 @@
 #                                        the command runs in (or the mapped one)        anyone
 #   * one exemption: in a personal repository the assistant may run close --push without --ready.
 #
-# Who a local worker runs as: the owner (default) in a git worktree of the checkout, or engineer
-# (LOOP_WORKER_AS=engineer, what dev-server's `goal` sets). engineer is let into one folder and nothing
-# above it, so its working copy is a full clone under .claude/worktrees: the grant never reaches
-# the project's .git. Its branch comes back by fetch; fold and drop treat both kinds alike.
-#
 # Nothing here pushes to develop or main, merges into them, marks ready, approves or deploys.
 #
 # Source control tiers (decision 0001, docs/spec/SDD.md area SC). repos.conf lines may end with
 # key=value fields: tier=0..4 forge=github|bare|none tracker=files|github slots=N large=0|1
 # keep=a,b (trunks that tidy never lists or deletes: the ones the host protects or checks)
-# spec=single|domains decisions=open|frozen (spec-direct mode: skills/loop/scripts/spec-guard.py).
+# spec=single|domains decisions=none|frozen|open (skills/loop/scripts/spec-guard.py; none is the default).
 #   tier <path|owner/repo>               print the tier record (lib/ai_ecosystem/tiers.py)  anyone
 #   land <repo>                          land the goal as its tier says: tier 1 fast-forward
 #                                        and push (assistant); tier 2 the owner's local land
@@ -106,8 +101,6 @@ BRIEF_CONF="${DEV_PLATFORM_BRIEF:-$HOME/.config/dev-platform/brief.conf}"
 state="${LOOP_STATE_DIR:-$HOME/.local/state/dev-platform/loop}"
 verb="${1:?status|state|plan|start|go|pause|resume|tick|collect|fold|drop|close|land|finish|tidy|tasks|tier}"; repo="${2:?owner/repo}"; shift 2
 CAP="${LOOP_CAP:-3}"
-WORKER_AS="${LOOP_WORKER_AS:-}"
-case "$WORKER_AS" in ""|engineer) ;; *) echo "loop: LOOP_WORKER_AS is empty (the owner) or engineer" >&2; exit 2 ;; esac
 MAX_TURNS="${LOOP_WORKER_MAX_TURNS:-60}"
 MAX_SECONDS="${LOOP_WORKER_MAX_SECONDS:-1800}"
 TOKEN_CEILING="${LOOP_WORKER_TOKEN_CEILING:-35000}"
@@ -117,7 +110,7 @@ done
 [[ "$repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "loop: invalid owner/repo" >&2; exit 2; }
 today="$(TZ=Etc/UTC date +%Y-%m-%d)"
 # The repository's tier record (SDD-SC-01): one reader for the loop, the guard and ghx.
-t_tier=3; t_forge=none; t_tracker=github; t_tasks=md; t_slots=2; t_large=0; t_base=""; t_keep=""; t_spec=single; t_decisions=open
+t_tier=3; t_forge=none; t_tracker=github; t_tasks=md; t_slots=2; t_large=0; t_base=""; t_keep=""; t_spec=single; t_decisions=none
 t_off=""; t_side=""
 tier_rec="$(python3 -I "$TIERS" --conf "$CONF" "$repo")" || { echo "loop: $CONF is malformed" >&2; exit 2; }
 while IFS='=' read -r key value; do
@@ -131,7 +124,7 @@ done <<<"$tier_rec"
 case ",$t_off," in *,loop,*)
   case "$verb" in status|state|plan|tasks|tier) ;; *) echo "loop: the loop is off for $repo (the parts of its project record)" >&2; exit 2 ;; esac ;;
 esac
-export LOOP_DECISIONS="$t_decisions"   # loop-tasks.py: with frozen, a cited decision does not gate a task
+export LOOP_DECISIONS="$t_decisions"   # loop-tasks.py: with none or frozen, a cited decision does not gate a task
 SLOTS="${LOOP_SLOTS:-$t_slots}"
 case "$SLOTS" in ''|*[!0-9]*|0) echo "loop: slots must be a positive integer" >&2; exit 2 ;; esac
 ctl="$state/${repo//\//__}"; mkdir -p "$ctl"
@@ -145,14 +138,14 @@ verify_loop_account() {
   # substituted; otherwise the eligible Claude account with the most remaining quota.
   # A refusal stops here: no worker is allocated and steer is not changed. Workers never
   # run unbound. A switch from the last account is said in the chat and recorded.
-  # Pi workers and seats (the API rig, LOOP_RUNTIME=pi or LOOP_SEAT_RUNTIME=pi) run on the
-  # OpenRouter key the rig holds: that account is named and its metered billing confirmed by the rig itself
-  # (docs/api-rig.md), and it must be signed in and verified like any other.
+  # Pi workers and seats (LOOP_RUNTIME=pi or LOOP_SEAT_RUNTIME=pi) run on the OpenRouter key:
+  # that account is named and its metered billing confirmed here, and it must be signed in and
+  # verified like any other. A headless Pi worker takes the key from this environment by name.
   local result
   [ "${LOOP_RUNTIME:-}" != hand ] || return 0   # the caller's own session is the account
   if [ "${LOOP_SEAT_RUNTIME:-}" = pi ] || [ "${LOOP_RUNTIME:-}" = pi ]; then
     if [ -z "${LOOP_SEAT_RIG:-}" ] && [ -z "${OPENROUTER_API_KEY:-}" ]; then
-      echo "loop: no OpenRouter key in this environment (the api-rig unit holds it); no worker allocated or steer changed" >&2; return 2
+      echo "loop: no OpenRouter key in this environment (OPENROUTER_API_KEY); no worker allocated or steer changed" >&2; return 2
     fi
     result="$(cd "$(repo_dir)" && "$ACCOUNT_CLI" resolve --provider openrouter --client pi \
       --account "${LOOP_ACCOUNT_ID:-openrouter}" --metered-ok --who loop --json)" || {
@@ -172,10 +165,8 @@ verify_loop_account() {
 # a session the owner is in (agent-run gives it OL_PORTAL term, desk or phone). Workers then
 # launch as the owner's own run (portal desk). The tick alone never starts a paid worker.
 owner_present() {
-  # unit: the API rig's service (api-rig@<project>), which the owner installed and enabled with
-  # his password; its daily and monthly caps stop dispatch (docs/api-rig.md).
   [ -t 0 ] && return 0
-  case "${OL_PORTAL:-}" in term|desk|phone|unit) return 0 ;; esac
+  case "${OL_PORTAL:-}" in term|desk|phone) return 0 ;; esac
   return 1
 }
 
@@ -309,11 +300,9 @@ worker_wt_of() {  # issue -> its working copy: the slot that holds it, or an old
 worker_branch_of() {  # issue -> local type/slug-<issue> branch (old loop-* workers only; slots have none)
   git -C "$(repo_dir)" for-each-ref --format='%(refname:short)' 'refs/heads/*/*' | grep -E -- "-$1\$" | head -1; return 0
 }
-is_clone() { [ -d "$1/.git" ]; }  # engineer's clone; a worktree has a .git file
-slot_head() {  # <slot> -> the commit its worker made (a clone's objects are fetched in first)
+slot_head() {  # <slot> -> the commit its worker made
   local h
   h="$(git -c safe.directory="$1" -C "$1" rev-parse --verify -q HEAD)" || return 1
-  if is_clone "$1"; then git -c safe.directory="$1" -C "$(repo_dir)" fetch -q "$1" HEAD 2>/dev/null || return 1; fi
   echo "$h"
 }
 free_slot() {  # -> a slot without a worker; a missing slot up to SLOTS counts as free; empty when all are busy
@@ -333,23 +322,11 @@ scope_dirs() {  # task Scope: prefixes -> folders for a sparse cone (a file pref
 }
 prepare_slot() {  # <slot> <scope>: the slot detached at the rig branch, clean, with a sparse cone if large
   local p="$1" scope="$2" dir; dir="$(repo_dir)"
-  if [ "$WORKER_AS" = engineer ]; then
-    # engineer is let into this folder only: a shared clone reads the checkout's objects in place
-    # (objects/info/alternates) and writes its own. No full copy (SDD-SC-06).
-    if [ -e "$p" ]; then if is_clone "$p"; then rm -rf -- "$p"; else git -C "$dir" worktree remove --force "$p"; fi; fi
-    git clone -q --shared --no-checkout "$dir" "$p"
-    git -C "$p" remote remove origin
-    git -C "$p" checkout -q --detach "$(git -C "$dir" rev-parse "$rig")"
-    git -C "$p" config user.name engineer; git -C "$p" config user.email engineer@dev-server
-    echo '.worker-*' >> "$p/.git/info/exclude"
+  if [ ! -e "$p" ]; then
+    git -C "$dir" worktree add -q --detach "$p" "$rig"
   else
-    if [ -e "$p" ] && is_clone "$p"; then rm -rf -- "$p"; fi
-    if [ ! -e "$p" ]; then
-      git -C "$dir" worktree add -q --detach "$p" "$rig"
-    else
-      git -C "$p" checkout -q -f --detach "$rig"
-      git -C "$p" clean -q -fdx
-    fi
+    git -C "$p" checkout -q -f --detach "$rig"
+    git -C "$p" clean -q -fdx
   fi
   if [ "$t_large" = 1 ] && [ -n "$(scope_dirs "$scope")" ]; then
     # shellcheck disable=SC2046
@@ -360,17 +337,13 @@ prepare_slot() {  # <slot> <scope>: the slot detached at the rig branch, clean, 
 }
 release_slot() {  # <working copy>: free a slot for the next task, or remove an old loop-* worktree
   if is_slot "$1"; then
-    if is_clone "$1"; then rm -rf -- "$1"; else rm -f "$1"/.worker-*; fi
+    rm -f "$1"/.worker-*
   else
     remove_wt "$1"
   fi
 }
-sync_clone() {  # <working copy> <branch>: a clone's branch, brought back as the checkout's branch
-  is_clone "$1" || return 0
-  git -c safe.directory="$1" -C "$(repo_dir)" fetch -q "$1" "+refs/heads/$2:refs/heads/$2" 2>/dev/null || true
-}
-remove_wt() {  # <working copy>: a clone is a folder; a worktree is the checkout's to remove
-  if is_clone "$1"; then rm -rf -- "$1"; else git -C "$(repo_dir)" worktree remove --force "$1"; fi
+remove_wt() {  # <working copy>: a worktree is the checkout's to remove
+  git -C "$(repo_dir)" worktree remove --force "$1"
 }
 worker_rows() {  # issue <tab> branch <tab> worktree <tab> ahead <tab> state <tab> seat rig, one per worker
   local dir wt i b ahead st seat c
@@ -381,7 +354,7 @@ worker_rows() {  # issue <tab> branch <tab> worktree <tab> ahead <tab> state <ta
       b="$(basename "$wt")"; c="$(slot_head "$wt" || echo '?')"
     else
       b="$(git -c safe.directory="$wt" -C "$wt" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')"
-      sync_clone "$wt" "$b"; c="$b"
+      c="$b"
     fi
     ahead="$(git -C "$dir" rev-list --count "${rig:-$(base_tip)}".."$c" 2>/dev/null || echo '?')"
     seat=""; grep -qsF 'OpenRig MANAGED BLOCK' "$wt/CLAUDE.md" "$wt/AGENTS.md" && seat="$(cat "$out/workers/$i.seat" 2>/dev/null || echo '?')"
@@ -470,6 +443,10 @@ dispatch() {  # <issue>...
       frozen_line="
 Decision records are frozen here: never add, change or delete a file under \`docs/decisions/\` and
 never add a \`SPEC-AMENDMENTS.md\`. The commit hook and the fold refuse both. Follow AGENTS.md."
+    elif [ "$t_decisions" = none ]; then
+      frozen_line="
+This repository keeps no decision record: never add, change or delete a file under \`docs/decisions/\`
+and never add a \`SPEC-AMENDMENTS.md\`. The commit hook and the fold refuse both. Follow AGENTS.md."
     fi
     if [ "$t_spec" = domains ]; then
       frozen_line="$frozen_line
@@ -495,7 +472,7 @@ and the regenerated \`docs/spec/index.json\`."
 Repository $repo. This directory is a work slot, detached at \`$rig\` ($base). Commit here, on
 the detached HEAD. Do not make a branch: the fold takes your commits by their commit ID.
 Read AGENTS.md and CONTRIBUTING.md here first; the repository's rules win over this brief.
-Write commit messages in ASD-STE100 (short sentences, active voice), in the form \`type(scope): summary\`.
+Write commit, PR and issue text in ASD-STE100 (short sentences, active voice). Keep the \`type(scope): summary\` form.
 Issue #$i: $title
 Scope (only these path prefixes may change): $scope
 The status marker that cites this task, and any lock digest that guards it, are always in scope
@@ -568,13 +545,13 @@ session_title_for() {  # client provider model account i worktree branch title l
 }
 
 launch_pi_worker() {  # issue worktree model branch title: one headless Pi run on the OpenRouter key
-  # The API rig's worker (docs/api-rig.md): a new Pi session per task, its model the model file's
+  # A headless Pi worker: a new Pi session per task, its model the model file's
   # line for the task resolved for openrouter (never a subscription), the platform guard, the
   # advice tool and worker-limits.mjs (turn and billed-token caps) loaded from its own agent
-  # folder, the wall-time cap from worker-run. The key reaches Pi by name from the rig's
+  # folder, the wall-time cap from worker-run. The key reaches Pi by name from the caller's
   # environment (worker-run passes OPENROUTER_API_KEY for LOOP_RUNTIME=pi), never as an argument.
   local i="$1" wt="$2" branch="$4" title="$5" labels="${6:-}" scope="${7:-}" role pimodel agent session_title piseat="$here/../../../lib/ai_ecosystem/piseat.py"
-  [ -n "${OPENROUTER_API_KEY:-}" ] || { echo "#$i: no OpenRouter key in this environment (the api-rig unit holds it); not started" >&2; return 2; }
+  [ -n "${OPENROUTER_API_KEY:-}" ] || { echo "#$i: no OpenRouter key in this environment (OPENROUTER_API_KEY); not started" >&2; return 2; }
   role="${LOOP_MODEL:-$(tier_role "$(jq -r '[.labels[].name]|join(",")' <<<"$(issue_json "$i")")")}"
   [ "$role" != "feature, refactoring" ] || role="rig worker"
   # The retry: a task that already had a Pi run and has no commit on its branch goes to the
@@ -662,14 +639,6 @@ launch_worker() {  # issue worktree model branch title [labels scope]: start a n
   if [ "${LOOP_RUNTIME:-claude}" = pi ]; then launch_pi_worker "$@"; return; fi
   local -a model_args=(--model "$model")
   worker_command=("$ACCOUNT_CLI" run --client claude --account "$selected_account" --)
-  if is_clone "$wt"; then  # engineer's clone: engineer runs it, let into this one folder by its launcher
-    case "$model" in
-      claude-*) ;; opus) model=claude-opus-5-5 ;; sonnet) model=claude-sonnet-5-5 ;; haiku) model=claude-haiku-4-5-20251001 ;;
-      *) echo "#$i: $model is not a Claude model the launcher knows; not started" >&2; return 2 ;;
-    esac
-    model_args=()  # the launcher passes OL_MODEL to the harness itself
-    worker_command=(env "OL_ACCOUNT=$selected_account" "OL_MODEL=$model" "${LOOP_AGENT:-agent}" engineer "$wt" --)
-  fi
   jq -cn --arg id "$selected_account" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     '{account_id:$id, runtime:"claude", attempted_at:$at, scope:"new worker attempt"}' >> "$out/workers/$i.account.jsonl"
   session_title="$(session_title_for claude-cli anthropic "$model" "$selected_account" "$i" "$wt" "$branch" "$title" "$labels" "$scope")"
@@ -906,7 +875,7 @@ PY
                 else
                   wt="$(worker_wt_of "$i")"
                   if [ -n "$wt" ] && is_slot "$wt"; then b="$(basename "$wt")"; c="$(slot_head "$wt" || true)"
-                  else b="$(worker_branch_of "$i")"; c="$b"; [ -z "$wt" ] || [ -z "$b" ] || sync_clone "$wt" "$b"; fi
+                  else b="$(worker_branch_of "$i")"; c="$b"; fi
                 fi ;;
         *) b="$a"; c="$a"; i="${b##*-}" ;;
       esac
@@ -928,9 +897,9 @@ PY
       if git -C "$dir" diff --name-only --diff-filter=A "$rig"..."$c" | grep -qE '(^|/)\.worker-'; then echo "  #$i: $b commits a .worker-* file; fix the branch first"; continue; fi
       j="$(issue_json "$i" 2>/dev/null || echo '{}')"
       spec_task=0; jq -e 'any(.labels[]?; .name == "spec")' >/dev/null <<<"$j" && spec_task=1
-      # Spec-direct mode (spec=domains, decisions=frozen on the repos.conf line): no task touches the
-      # decision records or adds an amendment ledger; a build task moves only the markers it cites.
-      if [ "$t_spec" = domains ] || [ "$t_decisions" = frozen ]; then
+      # decisions=none or frozen: no task touches the decision records or adds an amendment ledger.
+      # spec=domains: a build task moves only the markers it cites.
+      if [ "$t_spec" = domains ] || [ "$t_decisions" != open ]; then
         if ! guard="$(jq -r '.body // ""' <<<"$j" | python3 -I "$here/spec-guard.py" "$dir" "$rig" "$c" "$t_spec" "$t_decisions" "$spec_task")"; then
           echo "  #$i: $b fails the specification guard:"; printf '%s\n' "$guard" | head -10 | sed 's/^/    /'; continue
         fi

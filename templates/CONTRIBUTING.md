@@ -35,4 +35,4 @@ Deploys, restarts, credential rotation and destructive history operations requir
 
 ## Decisions
 
-An accepted decision that changes behavior gets a record under `docs/decisions/`, from `0000-template.md`, citing its task or issue and the changes that carried it.
+The owner accepts a change of behavior before it is built. The change edits the exact lines of the specification under `docs/spec/`, and the commit message gives the reason. The repository keeps no decision record and no amendment ledger.

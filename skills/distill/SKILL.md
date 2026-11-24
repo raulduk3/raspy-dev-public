@@ -24,8 +24,8 @@ People read, discuss and edit that file by hand. When a person decides a candida
    find each item by its ID or by its `domain` and `file` there, and read its source text in
    `docs/spec/<domain>/sdd.md` or `tdd.md`. Use `bun run spec:show <ID>` and
    `bun run spec:impact <ID>` where the repository has them. Never fall back to
-   `docs/spec/SDD.md` or `TDD.md` in that mode; they are retired. With `decisions=frozen`, an old
-   decision is history: rank against the current domain text. Otherwise use the project's
+   `docs/spec/SDD.md` or `TDD.md` in that mode; they are retired. With `decisions=none` or `decisions=frozen`, an old
+   decision is history: rank against the current specification text. Otherwise use the project's
    configured specification reader or project-local spec tool first, preserving its native
    section IDs and output format. If no configured reader exists, fall back to `docs/spec/SDD.md`, `docs/spec/TDD.md`, the other
    documents under `docs/`, and the code the TDD `code:` comments name. Use `dev-loop tasks

@@ -31,9 +31,9 @@ with `switch_execution_not_yet_wired`; that registry was empty at inspection on
 2026-09-24 and remains unconfigured. That is **not** a restriction on Claude seats,
 and it is **not** the mechanism this platform uses.
 
-`ai-environment plan --client openrig` (see `docs/host-account-service.md`) returns a
-launch-allowed plan once the selected account is verified and eligible; the seat launcher then
-starts the seat on that account.
+`dev-workspace --account` asks the platform's one resolver (the choice `ai-account resolve`
+makes; see the section AC of `docs/spec/SDD.md`). Once the named account is verified and eligible, the seat
+launcher starts the seat on that account.
 
 All control contexts may name their own sessions under the shared
 [session-naming contract](../../docs/session-naming.md). Native conversation titles,
@@ -123,11 +123,12 @@ directory; `--cwd` applies to a new rig only. For another task, use the shared
 task/worktree workflow rather than silently repurposing a live session. Archived
 or duplicate rigs require explicit resolution.
 
-`--account` resolves the named account through `ai-environment plan --client
-openrig` first (see `docs/host-account-service.md`), and refuses immediately, in
-the service's own words, if that plan is not launch-allowed — before touching rig
-inventory or writing anything. On an allowed plan it renders that per-account
-RigSpec from the plan's `member` fragment into
+`--account` first checks the folder's configuration files for an override of
+authentication or the provider, then resolves the named account with the one resolver
+(see the section AC of `docs/spec/SDD.md`). It refuses immediately, in the resolver's own words, if the
+account cannot serve the seat — before touching rig inventory or writing anything; a
+named account is never substituted. Otherwise it renders that per-account
+RigSpec (OpenRig's runtime name and the folder) into
 `~/.local/state/dev-platform/openrig/<rig-name>.yaml` (a state directory, not a
 product repository; never committed) and passes that generated spec to `rig up`
 in place of the shared `codex.yaml`/`claude.yaml`. Reusing an existing per-account
@@ -181,8 +182,8 @@ RigSpecs with the installed native `rig up ... --plan` as a separate integration
 check. Offline launcher tests do not establish live steering, authentication, or
 end-to-end loop correctness. No automatic installation or daemon upgrade occurs.
 
-`tests/test_openrig_profile.py` covers the `--account` path the same way, plus `host_plan`'s
-`openrig` branch directly, and checks that no generated spec carries `config_home`.
+`tests/test_openrig_profile.py` covers the `--account` path the same way, with a fake account
+state for the real resolver, and checks that no generated spec carries `config_home`.
 
 Both native plans passed on 2026-09-24 with the pinned CLI, with the expected
 `permission_policy absent; launch_posture=floor` warning. No agent was started by
@@ -209,8 +210,8 @@ The platform's 20/30-turn rule does not apply to seats: they follow this lifecyc
 
 ### Permissions in personal checkouts
 
-A new `dev-workspace start claude|codex` seat, and an `add-worker` seat, in a checkout listed in
-`~/.config/dev-platform/personal.conf` carries `permission_policy: "builtin:yolo"`: Claude launches with
+A new `dev-workspace start claude|codex` seat, and an `add-worker` seat, in a personal checkout
+(tier 1 or 2 in `~/.config/dev-platform/repos.conf`) carries `permission_policy: "builtin:yolo"`: Claude launches with
 `--dangerously-skip-permissions` and Codex with `-s danger-full-access -a never`, for that seat only.
 The launcher prints a notice when it does this. A folder that is not a Git checkout, a professional
 checkout, an already running rig (which keeps its launch posture), and the engineer control rooms and

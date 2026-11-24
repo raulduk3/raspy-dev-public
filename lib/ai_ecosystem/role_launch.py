@@ -1,9 +1,9 @@
 """Account-bound Pi role launcher: conversation -> identity -> profile -> lock -> exec.
 
-On dev-server the root launcher (agent-run) resolves the account, hands this process the
-Pi login as a private agent directory (--agent-dir) or an API key as a credential, and
-runs it as the role's own Linux user; this module then needs no registry of its own.
-Elsewhere selection is explicit or the registry's selected account. The launcher never
+The root launcher (agent-run) resolves the account, hands this process the Pi login as
+a private agent directory (--agent-dir) or an API key as a credential, and runs it as
+the role's own Linux user; this module needs no registry of its own, and without a
+handed agent directory it starts nothing. The launcher never
 imports account credentials, never claims Pi identity equals the account's Codex or
 Claude binding, and holds the conversation's writer lock across exec. The one secret
 it handles is the search tool's API key, the root-held secret the outer launcher hands in
@@ -16,10 +16,9 @@ import json
 import os
 from pathlib import Path
 import shutil
-import subprocess
 import sys
 
-from . import accounts, registry as account_registry, conversations, environment_service, memory as agent_memory, naming, paths, pi_launch, secret
+from . import accounts, registry as account_registry, conversations, memory as agent_memory, naming, paths, pi_launch, secret
 from .store import Store
 
 PLATFORM = Path(__file__).resolve().parents[2]
@@ -128,15 +127,6 @@ def journal_root(conf=None):
     return None
 
 
-def select_account(data, requested):
-    account = requested or data.get('selected')
-    if not account:
-        raise ValueError('choose an account with --account or ai-account select')
-    if account not in environment_service.ACCOUNTS:
-        raise ValueError('unknown account')
-    return account
-
-
 def default_model(profile_home, provider, requested, agent=None):
     import re
     if requested:
@@ -191,8 +181,8 @@ def handed_profile(agent_dir, account, provider):
     return {'profile_home': str(home), 'environment': {'PI_CODING_AGENT_DIR': str(home)}}, observation
 
 
-def plan(conversation_id, *, state_root=None, registry=None, account=None, model=None, resume=None,
-         profiles_root=None, agents_root=None, history_archive=None, offline=False, environ=None,
+def plan(conversation_id, *, state_root=None, account=None, model=None, resume=None,
+         agents_root=None, history_archive=None, offline=False, environ=None,
          agent_dir=None, provider=None, journal=None, inbox=None, prompt=None):
     environ = os.environ if environ is None else environ
     bad = accounts.conflicts(environ)
@@ -203,21 +193,11 @@ def plan(conversation_id, *, state_root=None, registry=None, account=None, model
     home = conversations.path_for(store, conversation_id)
     if not (home / 'native/pi').is_dir():
         raise ValueError('conversation has no native Pi directory')
-    if agent_dir:
-        name = account
-        provider = provider_for(name or '', provider)
-        profile, observation = handed_profile(agent_dir, name, provider)
-    else:
-        data = accounts.load(Path(registry) if registry else Path.home() / '.config/dev-platform/accounts.json')
-        name = select_account(data, account)
-        provider = provider_for(name)
-        profile = environment_service.profile_plan(
-            'pi', name, Path(profiles_root or Path.home() / '.local/share/dev-platform/accounts'))
-        observation = environment_service.check_pi_profile(profile)
-        if observation['state'] != 'configured':
-            raise ValueError(f"Pi profile for {name} is {observation['state']}: {profile['instructions']}")
-        if observation.get('provider') != provider:
-            raise ValueError('Pi profile provider does not match the account')
+    if not agent_dir:
+        raise ValueError('a Pi role starts through the launcher, which hands it the Pi login folder (--agent-dir)')
+    name = account
+    provider = provider_for(name or '', provider)
+    profile, observation = handed_profile(agent_dir, name, provider)
     model_id = default_model(profile['profile_home'], provider, model, conversation['agent'])
     state = Path(agents_root or Path.home() / '.local/share/dev-platform/agents').expanduser().resolve()
     identity = identity_file(conversation['agent'], state)
@@ -309,15 +289,13 @@ def with_search(env, offline):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--state-root', type=Path)
-    parser.add_argument('--registry', type=Path)
-    parser.add_argument('--profiles-root', type=Path)
     parser.add_argument('--agents-root', type=Path)
     sub = parser.add_subparsers(dest='command', required=True)
     # turn: one message (read from stdin), its answer printed, no terminal needed (the shared chat).
     for name in ('plan', 'launch', 'turn'):
         command = sub.add_parser(name)
         command.add_argument('conversation')
-        command.add_argument('--account', help='an account id; on dev-server the one the launcher resolved')
+        command.add_argument('--account', help='the account id the launcher resolved')
         command.add_argument('--provider', help='the registry provider of the account (anthropic, openai, openrouter, zai, ...)')
         command.add_argument('--agent-dir', type=Path, help="the Pi login directory the launcher handed this session")
         command.add_argument('--model')
@@ -329,16 +307,14 @@ def main(argv=None):
         command.add_argument('--offline', action='store_true', help='no model network; wiring checks only')
     args = parser.parse_args(argv)
     try:
-        if not args.agent_dir and args.account and args.account not in environment_service.ACCOUNTS:
-            raise ValueError('unknown account')
         prompt = None
         if args.command == 'turn':
             prompt = sys.stdin.read(64 * 1024).strip()
             if not prompt:
                 raise ValueError('a turn needs its message on stdin')
-        result, env = plan(args.conversation, state_root=args.state_root, registry=args.registry,
+        result, env = plan(args.conversation, state_root=args.state_root,
                            account=args.account, model=args.model, resume=args.resume,
-                           profiles_root=args.profiles_root, agents_root=args.agents_root,
+                           agents_root=args.agents_root,
                            history_archive=args.history_archive, offline=args.offline,
                            agent_dir=args.agent_dir, provider=args.provider,
                            journal=args.journal, inbox=args.inbox, prompt=prompt)

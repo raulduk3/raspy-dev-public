@@ -20,7 +20,7 @@ from . import paths, piseat, workspace
 PLATFORM = Path(__file__).resolve().parents[2]
 SHAPES = PLATFORM / 'integrations/openrig/shapes'
 RUNTIMES = ('claude-code', 'codex', 'pi')
-TRACKED = '*\n!.gitignore\n!rig.yaml\n!project\n!api-rig.json\n'
+TRACKED = '*\n!.gitignore\n!rig.yaml\n!project\n'
 def teams():
     return paths.teams()
 
@@ -152,7 +152,7 @@ def main(argv=None):
     writer.add_argument('--runtime', action='append', default=[], metavar='SEAT=RUNTIME',
                         help=f'a seat on another runtime ({" or ".join(RUNTIMES)}), for example lead=codex')
     writer.add_argument('--all', choices=RUNTIMES, help='every seat on this runtime, for example claude-code, '
-                                                        'or pi for the API rig (OpenRouter models from the model file)')
+                                                        'or pi (OpenRouter models from the model file)')
     args = parser.parse_args(argv)
     try:
         if args.command == 'list':

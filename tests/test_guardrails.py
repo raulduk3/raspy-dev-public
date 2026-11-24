@@ -103,7 +103,7 @@ class Guardrails(unittest.TestCase):
         # The owner's home, installed after a role's, has every platform skill again.
         self.install()
         self.assertEqual(len(list((self.home / '.claude/skills').iterdir())),
-                         len(list((ROOT / 'skills').glob('*/SKILL.md'))))
+                         len(list((ROOT / 'skills').glob('*/SKILL.md'))) + len(list((ROOT / 'agents').glob('*/skills/*/SKILL.md'))))
 
     def test_stale_platform_links_go_and_foreign_links_stay(self):
         base = self.home / '.claude/skills'
@@ -113,6 +113,41 @@ class Guardrails(unittest.TestCase):
         self.install()
         self.assertFalse((base / 'gone').is_symlink())
         self.assertTrue((base / 'other').is_symlink())
+
+    def test_the_owner_home_links_each_role_file_as_an_agent(self):
+        self.assertTrue(any('.claude/agents/engineer.md' in line for line in guardrails.status(self.home, self.release)))
+        self.assertEqual(self.install(), [])
+        agents = self.home / '.claude/agents'
+        roles = sorted(p.parent.name for p in (ROOT / 'agents').glob('*/role.md'))
+        self.assertIn('engineer', roles)
+        self.assertEqual(sorted(p.name for p in agents.iterdir()), [f'{role}.md' for role in roles])
+        for role in roles:
+            self.assertEqual(os.readlink(agents / f'{role}.md'), str(self.release / f'agents/{role}/role.md'))
+        self.assertFalse((agents / 'assistant.md').exists())          # assistant has no role file
+        self.assertEqual(guardrails.status(self.home, self.release), [])
+
+    def test_agent_links_of_its_own_stay_and_gone_roles_go(self):
+        agents = self.home / '.claude/agents'
+        agents.mkdir(parents=True)
+        (agents / 'engineer.md').write_text('mine\n')                              # a file of its own
+        (agents / 'ops.md').symlink_to('/somewhere/else/ops.md')                 # a link of its own
+        (agents / 'gone.md').symlink_to('/opt/dev-platform/releases/old/agents/gone/role.md')
+        (agents / 'other.md').symlink_to('/opt/dev-platform/current/docs/other.md')
+        notes = self.install()
+        self.assertTrue(any('engineer.md: a file of its own' in n for n in notes))
+        self.assertTrue(any('ops.md: a link of its own' in n for n in notes))
+        self.assertEqual((agents / 'engineer.md').read_text(), 'mine\n')
+        self.assertEqual(os.readlink(agents / 'ops.md'), '/somewhere/else/ops.md')
+        self.assertFalse((agents / 'gone.md').is_symlink())
+        self.assertTrue((agents / 'other.md').is_symlink())                     # not a role file: stays
+        problems = ' '.join(guardrails.status(self.home, self.release))
+        self.assertIn('engineer.md: not linked', problems)
+        self.assertIn('ops.md: not linked', problems)
+
+    def test_a_role_home_gets_no_agent_links(self):
+        self.assertEqual(self.install('engineer'), [])
+        self.assertFalse((self.home / '.claude/agents').exists())
+        self.assertEqual(guardrails.status(self.home, self.release, 'engineer'), [])
 
     def test_session_naming_is_installed_and_kept_beside_other_hooks(self):
         (self.home / '.codex').mkdir()

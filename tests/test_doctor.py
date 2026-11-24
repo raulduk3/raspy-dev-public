@@ -2,7 +2,6 @@
 import json
 import os
 from pathlib import Path
-import plistlib
 import subprocess
 import sys
 import tempfile
@@ -43,30 +42,6 @@ class Doctor(unittest.TestCase):
                                   'DEV_PLATFORM_CHECKOUT': str(self.platform)})
         self.assertEqual(run.returncode, 0, run.stderr)
         return json.loads(run.stdout)
-
-    def launch(self, **env):
-        path = self.home / 'Library/LaunchAgents/dev.raspy.laya.plist'
-        path.parent.mkdir(parents=True, exist_ok=True)
-        data = {'Label': 'dev.raspy.laya', 'ProgramArguments': ['/local/venv/bin/laya-serve'],
-                'EnvironmentVariables': {'LAYA_HOST': '127.0.0.1', 'LAYA_PORT': '18791',
-                                         'LAYA_PRELOAD': '1', 'SECRET_ENV': 'DO NOT OUTPUT', **env}}
-        path.write_bytes(plistlib.dumps(data))
-        return path
-
-    def listener(self, address='127.0.0.1:18791', second=False):
-        table = ('COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME\n'
-                 f'Python 123 test 8u IPv4 0x0 0t0 TCP {address} (LISTEN)\n')
-        if second:
-            table += f'Python 456 test 8u IPv4 0x1 0t0 TCP {address} (LISTEN)\n'
-        self.binary('lsof', "import sys\nassert sys.argv[1:] == ['-nP', '-iTCP:18791', '-sTCP:LISTEN']\n"
-                           f'print({table!r})\n')
-
-    def helper(self, result):
-        self.binary('laya-decide', 'import json, sys\n'
-                    'assert len(sys.argv) == 1\n'
-                    'data = json.load(sys.stdin)\n'
-                    "assert set(data) == {'state', 'options'} and len(data['options']) == 2\n"
-                    f'print({json.dumps(result)!r})\n')
 
     def rig(self, config=None, version='0.6.10 (test)'):
         config = config or {
@@ -124,17 +99,29 @@ class Doctor(unittest.TestCase):
         before = sorted((str(p), os.readlink(p) if p.is_symlink() else None) for p in self.home.rglob('*'))
         report = self.run_doctor()
         self.assertEqual(report['commands']['claude']['state'], 'missing')
-        self.assertEqual(report['commands']['laya-decide']['state'], 'missing')
         self.assertEqual(report['skills']['.claude/skills']['broken'], ['gone'])
         self.assertEqual(report['skills']['.claude/skills']['missing'], ['loop'])
         self.assertEqual(report['skills']['.claude/skills']['canonical_missing'], ['loop'])
         self.assertEqual(report['skills']['.codex/skills']['state'], 'missing')
         self.assertEqual(report['platform_check']['state'], 'ok')
-        self.assertEqual(report['laya']['probe']['state'], 'unverified')
-        self.assertEqual(report['laya']['listener']['state'], 'unverified')
         self.assertEqual(report['jev']['config']['state'], 'missing')
         after = sorted((str(p), os.readlink(p) if p.is_symlink() else None) for p in self.home.rglob('*'))
         self.assertEqual(before, after)
+
+    def test_reports_broken_and_missing_agent_links(self):
+        (self.platform / 'agents/engineer').mkdir(parents=True)
+        (self.platform / 'agents/engineer/role.md').write_text('# Engineer\n')
+        (self.platform / 'agents/assistant').mkdir(parents=True)                   # no role file
+        self.assertEqual(self.run_doctor()['agents']['.claude/agents'],
+                         {'state': 'missing', 'broken': [], 'missing': ['engineer']})
+        agents = self.home / '.claude/agents'
+        agents.mkdir(parents=True)
+        os.symlink(self.platform / 'agents/engineer/role.md', agents / 'engineer.md')
+        os.symlink(self.home / 'nowhere/ops/role.md', agents / 'ops.md')
+        self.assertEqual(self.run_doctor()['agents']['.claude/agents'],
+                         {'state': 'broken', 'broken': ['ops.md'], 'missing': []})
+        (agents / 'ops.md').unlink()
+        self.assertEqual(self.run_doctor()['agents']['.claude/agents']['state'], 'ok')
 
     def test_jev_diagnostic_reports_cap_credential_and_usage_without_secret(self):
         config = self.home / '.config/dev-platform/jev.json'
@@ -262,45 +249,6 @@ class Doctor(unittest.TestCase):
         self.assertEqual(fixed['state'], 'ok')
         self.assertEqual(fixed['missing'], [])
 
-    def test_python_listener_and_real_json_inference_contract(self):
-        self.launch()
-        self.listener()
-        self.helper({'status': 'recommended', 'mode': 'shadow', 'automatically_applied': False,
-                     'recommendation': 'read_summary', 'route': 'small', 'checkpoint': 'local'})
-        default = self.run_doctor()['laya']
-        self.assertEqual(default['probe']['state'], 'unverified')
-        self.assertEqual(default['launch_config']['state'], 'ok')
-        self.assertEqual(default['listener']['state'], 'ok')
-        report = self.run_doctor('--probe-laya')
-        self.assertEqual(report['laya']['probe']['inference'], 'verified')
-        self.assertEqual(report['laya']['probe']['recommendation_quality'], 'unverified')
-        self.assertNotIn('DO NOT OUTPUT', json.dumps(report))
-
-    def test_unavailable_and_invalid_helper_responses_are_not_success(self):
-        for result, expected in [
-            ({'status': 'unavailable', 'mode': 'shadow', 'recommendation': None}, 'unavailable'),
-            ({'status': 'recommended', 'mode': 'active', 'recommendation': 'read_summary'}, 'broken'),
-            ({'status': 'recommended', 'mode': 'shadow', 'recommendation': 'invented'}, 'broken'),
-            ('Usage: helper --help', 'broken'),
-        ]:
-            with self.subTest(result=result):
-                self.helper(result)
-                self.assertEqual(self.run_doctor('--probe-laya')['laya']['probe']['state'], expected)
-
-    def test_launch_configuration_and_listener_semantics(self):
-        for env in ({'LAYA_HOST': '0.0.0.0'}, {'LAYA_PORT': '1234'}, {'LAYA_PRELOAD': '0'}):
-            self.launch(**env)
-            self.assertEqual(self.run_doctor()['laya']['launch_config']['state'], 'broken')
-        path = self.launch()
-        path.with_name('other-laya.plist').write_bytes(path.read_bytes())
-        self.assertEqual(self.run_doctor()['laya']['launch_config']['state'], 'broken')
-        self.listener('0.0.0.0:18791')
-        self.assertEqual(self.run_doctor()['laya']['listener']['state'], 'broken')
-        self.listener(second=True)
-        self.assertEqual(self.run_doctor()['laya']['listener']['state'], 'broken')
-        self.binary('lsof', 'import sys\nsys.exit(1)\n')
-        self.assertEqual(self.run_doctor()['laya']['listener']['state'], 'unavailable')
-
     def test_openrig_herdr_and_instruction_contracts_are_reported(self):
         self.openrig_runtime()
         self.rig()
@@ -310,7 +258,6 @@ class Doctor(unittest.TestCase):
         (self.home / '.config/herdr/herdr.sock').write_text('')
         for path in ('hooks/claude-settings.hooks.json', 'hooks/codex.rules', 'hooks/pre-tool-use-guard.sh',
                      'hooks/session-length.sh', 'agents/rules.md', 'templates/AGENTS.md',
-                     'vscode/dev-platform.instructions.md',
                      'integrations/openrig/agents/control/guidance/role.md',
                      'integrations/openrig/agents/worker/guidance/role.md',
                      'integrations/openrig/agents/overseer/guidance/role.md'):
