@@ -7,7 +7,7 @@
 <p align="center"><em>Paste this into your agent to figure out what you might want from this system.</em></p>
 
 ```text
-Read the repository at https://raw.githubusercontent.com/raulduk3/raspy-dev-public/main/README.md. Start at README.md and do what
+Read the repository at https://raw.githubusercontent.com/raulduk3/raspy-dev-public/main/README.md. Do what
 the section "Prompt for the agent" tells you. Then tell me what I might want from
 this system.
 ```
