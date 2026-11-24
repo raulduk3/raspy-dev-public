@@ -8,8 +8,7 @@
 
 ```text
 Read the repository at https://raw.githubusercontent.com/raulduk3/raspy-dev-public/main/README.md. Do what
-the section "Prompt for the agent" tells you. Then tell me what I might want from
-this system.
+the section "Prompt for the agent" tells you. Then tell me what I might want from this system.
 ```
 
 The rest of this page is for the agent.
