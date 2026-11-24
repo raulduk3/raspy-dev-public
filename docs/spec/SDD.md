@@ -66,9 +66,6 @@ dev-platform is the layer around the editor, the terminal and the coding agents 
 **PL-13.** The platform MUST NOT replace the native session format or the native sign-in of a client.
 <!-- id: SYS-PL-13 -->
 
-**PL-14.** The platform MUST build the server from a fresh install with one command.
-<!-- id: SYS-PL-14 -->
-
 ## SC. Source control
 <!-- section: SDD-SC | sys: SYS-PL-01 -->
 
@@ -3559,6 +3556,15 @@ The reasons:
 - On failure: If the vendor copy does not hold a left-out path, the port stops with an error and writes no skill.
 - Verified by: A test that looks for each left-out path in the vendor copy, in the ported skill and in the text of each file of the ported skill.
 
+**MA-48.** Where a role has a role file in the active release, the owner home MUST hold a Claude Code agent link to that file.
+<!-- id: SDD-MA-48 | tdd: TDD-14.28 -->
+
+- Behavior: The link lets the owner start a main session in a role with `claude --agent` and the role name. The link goes through the link `current`. The install of the guardrails for the owner makes the links.
+- Observable: The status of the guardrails lists each agent link that is missing or wrong. The environment doctor lists each broken agent link and each role with no link.
+- On failure: A file or a link of another origin with the name of the link stays, and the install reports it.
+- Verified by: Guardrails tests of a new owner home, of a home with a file and a link of its own and a link of a removed role, and of a role home. A doctor test with a missing and a broken link.
+- Limits: Only a role with a role file gets a link. A role home gets no agent links. The install removes only a platform link to a role file that is gone.
+
 ## ST. Specification tree
 <!-- section: SDD-ST | sys: SYS-PL-09 -->
 
@@ -4421,15 +4427,3 @@ The reasons:
 <!-- id: SDD-RL-58 | tdd: TDD-14.42 -->
 
 - Verified by: A test that reads no command after the answer no and the drop verb with the task number after the answer yes.
-
-## MA. Machine
-<!-- section: SDD-MA | sys: SYS-PL-14 -->
-
-**MA-48.** Where a role has a role file in the active release, the owner home MUST hold a Claude Code agent link to that file.
-<!-- id: SDD-MA-48 | tdd: TDD-14.28 -->
-
-- Behavior: The link lets the owner start a main session in a role with `claude --agent` and the role name. The link goes through the link `current`. The install of the guardrails for the owner makes the links.
-- Observable: The status of the guardrails lists each agent link that is missing or wrong. The environment doctor lists each broken agent link and each role with no link.
-- On failure: A file or a link of another origin with the name of the link stays, and the install reports it.
-- Verified by: Guardrails tests of a new owner home, of a home with a file and a link of its own and a link of a removed role, and of a role home. A doctor test with a missing and a broken link.
-- Limits: Only a role with a role file gets a link. A role home gets no agent links. The install removes only a platform link to a role file that is gone.
